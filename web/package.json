@@ -1,0 +1,12 @@
+{
+  "name": "erp-enterprise-pro-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Demonstração web do ERP Enterprise Pro (dados fictícios; não conectada ao Protheus).",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node server/index.js",
+    "reset": "node server/index.js --reset",
+    "test": "node --test --test-reporter=spec tests/erp.test.js tests/admin.test.js"
+  }
+}
