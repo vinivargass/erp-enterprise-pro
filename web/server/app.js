@@ -13,6 +13,7 @@ const pedidos = require('./services/pedidos');
 const estoque = require('./services/estoque');
 const financeiro = require('./services/financeiro');
 const dashboard = require('./services/dashboard');
+const mesa = require('./services/mesa');
 const relatorios = require('./services/relatorios');
 const admin = require('./services/admin');
 const base = require('./services/base');
@@ -40,10 +41,24 @@ function rotas() {
   // CSRF guardado na aba (sessionStorage). Só a própria origem lê esta resposta (SameSite + sem CORS).
   add('GET', '/api/auth/sessao', '', (c) => ({ ...c.usuario, csrf: c.csrf }));
 
-  add('GET', '/api/dashboard', 'dashboard.ler', (c, q) => dashboard.resumo(c, q));
+  // Página Início ("Minha mesa de trabalho"): dados PESSOAIS de qualquer usuário autenticado.
+  // O serviço filtra tudo pelo usuário da sessão; nada da empresa é consultado aqui.
+  add('GET', '/api/empresa', '', (c) => mesa.empresa(c));
+  add('GET', '/api/mesa', '', (c) => mesa.mesa(c));
+  add('POST', '/api/notas', '', (c, q, b) => mesa.criarNota(c, b), { status: 201 });
+  add('PUT', '/api/notas/:id', '', (c, q, b, p) => mesa.alterarNota(c, p.id, b));
+  add('DELETE', '/api/notas/:id', '', (c, q, b, p) => mesa.excluirNota(c, p.id));
+  add('PUT', '/api/mesa/preferencias', '', (c, q, b) => mesa.salvarPreferencias(c, b));
+  add('GET', '/api/tarefas', '', (c, q) => mesa.listar(c, q));
+  add('POST', '/api/tarefas', '', (c, q, b) => mesa.criar(c, b), { status: 201 });
+  add('PUT', '/api/tarefas/:id', '', (c, q, b, p) => mesa.alterar(c, p.id, b));
+  add('POST', '/api/tarefas/:id/concluir', '', (c, q, b, p) => mesa.concluir(c, p.id, b));
+  add('DELETE', '/api/tarefas/:id', '', (c, q, b, p) => mesa.excluir(c, p.id));
+  // Resultados estratégicos: permissão explícita, conferida aqui antes de qualquer consulta.
+  add('GET', '/api/painel-executivo', 'painel_executivo.ler', (c, q) => dashboard.resumo(c, q));
   add('GET', '/api/notificacoes', '', (c) => dashboard.alertas(c));
 
-  add('GET', '/api/condicoes-pagamento', '', (c) => clientes.condicoesPagamento(c));
+  add('GET', '/api/condicoes-pagamento', 'clientes.ler', (c) => clientes.condicoesPagamento(c));
   add('GET', '/api/clientes', 'clientes.ler', (c, q) => clientes.listar(c, q));
   add('POST', '/api/clientes', 'clientes.gravar', (c, q, b) => clientes.incluir(c, b), { status: 201, idem: true });
   add('GET', '/api/clientes/:id', 'clientes.ler', (c, q, b, p) => clientes.obter(c, p.id));
@@ -51,6 +66,7 @@ function rotas() {
   add('POST', '/api/clientes/:id/inativar', 'clientes.inativar', (c, q, b, p) => clientes.definirAtivo(c, p.id, false, b.versao));
   add('POST', '/api/clientes/:id/reativar', 'clientes.inativar', (c, q, b, p) => clientes.definirAtivo(c, p.id, true, b.versao));
   add('GET', '/api/clientes/:id/historico', 'clientes.ler', (c, q, b, p) => clientes.historico(c, p.id));
+  add('GET', '/api/vendedores', 'clientes.carteira', (c) => clientes.vendedores(c));
 
   add('GET', '/api/produtos', 'produtos.ler', (c, q) => produtos.listar(c, q));
   add('GET', '/api/produtos-grupos', 'produtos.ler', (c) => produtos.grupos(c));
@@ -68,6 +84,9 @@ function rotas() {
   add('POST', '/api/pedidos/:id/rejeitar', 'pedidos.aprovar', (c, q, b, p) => pedidos.rejeitar(c, p.id, b.versao, b.motivo));
   add('POST', '/api/pedidos/:id/cancelar', 'pedidos.gravar', (c, q, b, p) => pedidos.cancelar(c, p.id, b.versao, b.motivo));
   add('POST', '/api/pedidos/:id/faturar', 'pedidos.faturar', (c, q, b, p) => pedidos.faturar(c, p.id, b.versao), { idem: true });
+  // Expedição: pedidos aprovados/faturados sem valores (perfil ESTOQUE).
+  add('GET', '/api/expedicao', 'pedidos.expedicao', (c, q) => pedidos.expedicao(c, q));
+  add('GET', '/api/expedicao/:id', 'pedidos.expedicao', (c, q, b, p) => pedidos.expedicaoDetalhe(c, p.id));
 
   add('GET', '/api/estoque/saldos', 'estoque.ler', (c, q) => estoque.saldos(c, q));
   add('GET', '/api/estoque/movimentos', 'estoque.ler', (c, q) => estoque.listarMovimentos(c, q));
@@ -77,17 +96,19 @@ function rotas() {
   add('GET', '/api/financeiro/pagar', 'financeiro.ler', (c, q) => financeiro.listar(c, 'P', q));
   add('GET', '/api/financeiro/titulos/:id', 'financeiro.ler', (c, q, b, p) => financeiro.obter(c, p.id));
   add('POST', '/api/financeiro/titulos/:id/liquidar', 'financeiro.liquidar', (c, q, b, p, req) => financeiro.liquidar(c, p.id, b, req.chaveIdem), { idem: true });
+  add('PUT', '/api/financeiro/titulos/:id', 'financeiro.editar', (c, q, b, p) => financeiro.editar(c, p.id, b));
 
-  add('GET', '/api/relatorios', 'relatorios.ler', () => relatorios.catalogo());
+  add('GET', '/api/relatorios', 'relatorios.ler', (c) => relatorios.catalogo(c));
   add('GET', '/api/relatorios/:rel', 'relatorios.ler', (c, q, b, p) => relatorios.executar(c, p.rel, q));
 
   // Área administrativa (somente ADMIN; permissão lida do banco a cada requisição).
-  add('GET', '/api/admin/painel', 'admin.painel', (c, q) => admin.painel(c, q));
-  add('GET', '/api/admin/vendas', 'admin.painel', (c, q) => admin.vendasDetalhe(c, q));
+  // O painel administrativo também mostra faturamento, margem e títulos: exige ainda a permissão executiva.
+  add('GET', '/api/admin/painel', 'admin.painel', (c, q) => { exigir(c.usuario, 'painel_executivo.ler'); return admin.painel(c, q); });
+  add('GET', '/api/admin/vendas', 'admin.painel', (c, q) => { exigir(c.usuario, 'painel_executivo.ler'); return admin.vendasDetalhe(c, q); });
   add('GET', '/api/admin/usuarios', 'usuarios.gerir', (c, q) => admin.buscarUsuarios(c, q));
   add('POST', '/api/admin/usuarios/:id/conceder-admin', 'usuarios.gerir', (c, q, b, p) => admin.definirAdmin(c, p.id, true));
   add('POST', '/api/admin/usuarios/:id/remover-admin', 'usuarios.gerir', (c, q, b, p) => admin.definirAdmin(c, p.id, false));
-  add('POST', '/api/admin/usuarios/:id/perfil', 'usuarios.gerir', (c, q, b, p) => admin.definirPerfil(c, p.id, b.perfil));
+  add('POST', '/api/admin/usuarios/:id/perfil', 'usuarios.gerir', (c, q, b, p) => admin.definirPerfil(c, p.id, b.perfil, b.adicionais));
   add('POST', '/api/admin/usuarios/:id/ativo', 'usuarios.gerir', (c, q, b, p) => admin.definirAtivo(c, p.id, b.ativo));
   add('DELETE', '/api/admin/usuarios/:id', 'usuarios.gerir', (c, q, b, p) => admin.excluirUsuario(c, p.id, b.confirmacao));
   add('GET', '/api/admin/perfis', 'usuarios.gerir', () => admin.catalogoPerfis());

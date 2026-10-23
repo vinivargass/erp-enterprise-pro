@@ -7,6 +7,6 @@
   "scripts": {
     "start": "node server/index.js",
     "reset": "node server/index.js --reset",
-    "test": "node --test --test-reporter=spec tests/erp.test.js tests/admin.test.js"
+    "test": "node --test --test-reporter=spec tests/erp.test.js tests/admin.test.js tests/publico.test.js tests/inicio.test.js tests/permissoes.test.js"
   }
 }

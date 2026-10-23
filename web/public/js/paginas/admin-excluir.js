@@ -1,10 +1,10 @@
 // Exclusão de usuários (somente ADMIN). O servidor decide se a conta pode ser excluída
 // (sem histórico, não é admin, não é você) e reavalia no momento da exclusão.
 import { api, get, post } from '../api.js';
-import { h, selo, modal, toast, toastErro, tabelaRemota, atrasar, acessoNegado } from '../ui.js';
+import { h, selo, modal, toast, toastErro, tabelaRemota, atrasar, acessoNegado, acoesLinha } from '../ui.js';
 import { navAdmin } from './admin-painel.js';
 
-const ROT_PERFIL = { ADMIN: 'Admin', GERENTE: 'Gerente', VENDEDOR: 'Vendedor', ESTOQUE: 'Estoque', FINANCEIRO: 'Financeiro', CONSULTA: 'Consulta' };
+const ROT_PERFIL = { ADMIN: 'Admin', DIRETORIA: 'Diretoria', GERENTE: 'Gerente', VENDEDOR: 'Vendedor', ESTOQUE: 'Estoque', FINANCEIRO: 'Financeiro', CONSULTA: 'Consulta', SEM_ACESSO: 'Sem acesso' };
 
 export async function render(ctx) {
   ctx.migalhas(['Administração', 'Excluir usuários']);
@@ -22,10 +22,12 @@ export async function render(ctx) {
       { chave: 'ativo', titulo: 'Conta', render: (u) => (u.ativo ? selo('Ativa', 'ok') : selo('Inativa', 'neutro')) },
       { chave: 'exclusao', titulo: 'Pode excluir?', quebra: true, render: (u) => h('span', {},
         u.exclusao.permitida ? selo('Sim', 'ok') : selo('Não', 'erro'), h('small', { class: 'muted' }, ' ' + u.exclusao.motivo)) },
-      { chave: 'acao', titulo: 'Ação', render: (u) => h('div', { class: 'acoes-linha' },
-        h('button', { class: 'btn btn-pequeno btn-perigo-cheio', disabled: !u.exclusao.permitida, onclick: () => confirmarExclusao(u) }, 'Excluir'),
-        !u.exclusao.permitida && u.ativo && !u.voce
-          ? h('button', { class: 'btn btn-pequeno', title: 'Depois de desativada, a conta pode ser excluída.', onclick: () => desativar(u) }, 'Desativar') : null) },
+      // Excluir é a ação desta tela; desativar (passo anterior para contas com histórico) fica em "Mais ações".
+      { chave: 'acao', titulo: 'Ação', render: (u) => acoesLinha(
+        h('button', { class: 'btn btn-pequeno btn-perigo-cheio', disabled: !u.exclusao.permitida, onclick: () => confirmarExclusao(u) }, 'Excluir'), [
+          !u.exclusao.permitida && u.ativo && !u.voce
+            ? { rotulo: 'Desativar conta (para poder excluir)', sensivel: true, acao: () => desativar(u) } : null,
+        ]) },
     ],
   });
 

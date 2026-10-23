@@ -4,7 +4,7 @@
 // recalculadas do banco a cada requisição — nada vindo do navegador define o perfil.
 const { transacao } = require('../db');
 const { erro } = require('../erros');
-const { alterarUsuario, PERFIS, catalogoPerfis } = require('../auth');
+const { alterarUsuario, PERFIS, catalogoPerfis, definirAdicionais, adicionaisDoUsuario, permissoesEfetivas } = require('../auth');
 const { reais } = require('../validacao');
 const base = require('./base');
 
@@ -47,6 +47,7 @@ function buscarUsuarios(ctx, query = {}) {
       // perfil ao qual a pessoa volta se perder o Admin (informado na confirmação)
       perfil_comum: u.admin ? (u.perfil_base || 'CONSULTA') : u.perfil,
       voce: u.id === ctx.usuario.id,
+      adicionais: u.admin ? [] : adicionaisDoUsuario(ctx.db, u.id),
       ...(query.exclusao === '1' ? { exclusao: avaliarExclusao(ctx, u) } : {}),
     })),
     total, pagina, tamanho, admins_ativos: adminsAtivos,
@@ -65,33 +66,51 @@ function definirAdmin(ctx, id, paraAdmin) {
   });
 }
 
-// Troca para QUALQUER perfil da lista oficial (vendedor, estoque, financeiro...). O perfil pedido é
-// conferido contra a lista do servidor; as proteções (próprio acesso, último admin) são as mesmas.
-function definirPerfil(ctx, id, perfil) {
+// Troca para QUALQUER perfil da lista oficial e/ou define os acessos adicionais do usuário.
+// Corpo: { perfil, adicionais: ['pedidos.faturar', ...] }. O perfil e cada adicional são conferidos
+// contra as listas do servidor; as proteções (próprio acesso, último admin) são as mesmas.
+// Sem 'adicionais' no corpo: mantém os atuais se o perfil não mudou; zera se mudou.
+function definirPerfil(ctx, id, perfil, adicionais) {
   const alvo = ctx.db.prepare('SELECT id, login, nome, perfil, perfil_base, ativo FROM usuarios WHERE id = ?').get(Number(id));
   if (!alvo) throw erro.naoEncontrado('Usuário não encontrado.');
-  const novo = typeof perfil === 'string' ? perfil.toUpperCase() : '';
-  const acao = novo === 'ADMIN' ? 'CONCEDER_ADMIN' : alvo.perfil === 'ADMIN' ? 'REMOVER_ADMIN' : 'ALTERAR_PERFIL';
+  const novo = perfil === undefined || perfil === null || perfil === '' ? alvo.perfil : typeof perfil === 'string' ? perfil.toUpperCase() : '';
+  const atuais = adicionaisDoUsuario(ctx.db, alvo.id).sort();
+  const lista = Array.isArray(adicionais) ? [...new Set(adicionais.map(String))].sort() : novo === alvo.perfil ? atuais : [];
+  const acao = novo === 'ADMIN' && alvo.perfil !== 'ADMIN' ? 'CONCEDER_ADMIN'
+    : alvo.perfil === 'ADMIN' && novo !== 'ADMIN' ? 'REMOVER_ADMIN'
+      : novo !== alvo.perfil ? 'ALTERAR_PERFIL' : 'ALTERAR_ACESSOS';
   return aplicarPerfil(ctx, alvo, novo, acao, () => {
+    if (alvo.id === ctx.usuario.id) {
+      throw erro.regra(alvo.perfil === 'ADMIN' && novo !== 'ADMIN' ? 'Você não pode remover o próprio acesso de administrador.' : 'Você não pode alterar o próprio perfil de acesso.');
+    }
     if (!PERFIS.includes(novo)) throw erro.validacao('Perfil inválido.', { perfil: 'Escolha um dos perfis da lista.' });
-    if (novo === alvo.perfil) throw erro.regra(`${alvo.nome} já tem o perfil ${novo}.`);
-  });
+    if (adicionais !== undefined && !Array.isArray(adicionais)) throw erro.validacao('Acessos adicionais inválidos.', { adicionais: 'Envie uma lista.' });
+    if (novo === alvo.perfil && lista.join() === atuais.join()) throw erro.regra(`Nenhuma alteração: ${alvo.nome} já tem este perfil e estes acessos.`);
+  }, lista, atuais);
 }
 
-function aplicarPerfil(ctx, alvo, novoPerfil, acao, validar) {
-  const detalhesBase = { usuario_afetado: alvo.login, nome: alvo.nome, perfil_anterior: alvo.perfil };
+function aplicarPerfil(ctx, alvo, novoPerfil, acao, validar, adicionais = [], anteriores = adicionaisDoUsuario(ctx.db, alvo.id)) {
+  const detalhesBase = { usuario_afetado: alvo.login, nome: alvo.nome, perfil_anterior: alvo.perfil, adicionais_anteriores: anteriores };
   try {
     validar();
     if (novoPerfil === 'ADMIN' && !alvo.ativo) throw erro.regra('Reative a conta antes de conceder o perfil Admin.');
     return transacao(ctx.db, () => {
-      const r = alterarUsuario(ctx.db, ctx.usuario, alvo.id, { perfil: novoPerfil });
-      base.auditar(ctx, 'USUARIO', alvo.id, acao, { ...detalhesBase, perfil_novo: r.depois.perfil, resultado: 'SUCESSO', sessoes_encerradas: true });
-      return { id: alvo.id, nome: alvo.nome, login: alvo.login, perfil: r.depois.perfil, admin: r.depois.perfil === 'ADMIN', ativo: r.depois.ativo };
+      const r = novoPerfil !== alvo.perfil ? alterarUsuario(ctx.db, ctx.usuario, alvo.id, { perfil: novoPerfil })
+        : { depois: { perfil: alvo.perfil, ativo: !!alvo.ativo } };
+      // Admin já tem tudo: não guarda adicionais. Os demais são validados contra a lista do perfil.
+      definirAdicionais(ctx.db, alvo.id, r.depois.perfil, r.depois.perfil === 'ADMIN' ? [] : adicionais, ctx.usuario.login, base.agoraIso(ctx));
+      const novos = adicionaisDoUsuario(ctx.db, alvo.id).sort();
+      base.auditar(ctx, 'USUARIO', alvo.id, acao, {
+        ...detalhesBase, perfil_novo: r.depois.perfil, adicionais_novos: novos, resultado: 'SUCESSO', sessoes_encerradas: true,
+      });
+      return { id: alvo.id, nome: alvo.nome, login: alvo.login, perfil: r.depois.perfil, admin: r.depois.perfil === 'ADMIN',
+        ativo: r.depois.ativo, adicionais: novos, permissoes: permissoesEfetivas(r.depois.perfil, novos) };
     });
   } catch (e) {
     try {
       base.auditar(ctx, 'USUARIO', alvo.id, acao, {
-        ...detalhesBase, perfil_novo: alvo.perfil, perfil_solicitado: String(novoPerfil).slice(0, 20), resultado: e.status ? 'NEGADO' : 'FALHA',
+        ...detalhesBase, perfil_novo: alvo.perfil, perfil_solicitado: String(novoPerfil).slice(0, 20),
+        adicionais_solicitados: (adicionais || []).slice(0, 20).map((p) => String(p).slice(0, 40)), resultado: e.status ? 'NEGADO' : 'FALHA',
         motivo: e.status ? e.message : 'Erro interno ao gravar.',
       });
     } catch { /* se nem a auditoria grava, o erro original prevalece */ }
@@ -133,7 +152,7 @@ function contarAtividade(db, login) {
     financeiro: um('SELECT COUNT(*) n FROM baixas WHERE usuario = ? COLLATE NOCASE'),
     cadastros: um(`SELECT COUNT(*) n FROM auditoria WHERE usuario = ? COLLATE NOCASE
                    AND (entidade IN ('CLIENTE','PRODUTO','PEDIDO','ESTOQUE','TITULO','PARAMETRO')
-                        OR acao IN ('CONCEDER_ADMIN','REMOVER_ADMIN','ALTERAR_PERFIL','DESATIVAR_CONTA','REATIVAR_CONTA','EXCLUIR_USUARIO'))`),
+                        OR acao IN ('CONCEDER_ADMIN','REMOVER_ADMIN','ALTERAR_PERFIL','ALTERAR_ACESSOS','DESATIVAR_CONTA','REATIVAR_CONTA','EXCLUIR_USUARIO'))`),
   };
 }
 
@@ -188,7 +207,7 @@ function excluirUsuario(ctx, id, confirmacao) {
 // Histórico de alterações de perfil (concessões, remoções e alterações pela tela de Parâmetros).
 function historicoPerfis(ctx, query = {}) {
   const pag = { tamanho: Math.min(Math.max(parseInt(query.tamanho, 10) || 10, 1), 50), pagina: Math.max(parseInt(query.pagina, 10) || 1, 1) };
-  const where = "entidade = 'USUARIO' AND acao IN ('CONCEDER_ADMIN','REMOVER_ADMIN','ALTERAR_PERFIL','DESATIVAR_CONTA','REATIVAR_CONTA','EXCLUIR_USUARIO','ALTERACAO')";
+  const where = "entidade = 'USUARIO' AND acao IN ('CONCEDER_ADMIN','REMOVER_ADMIN','ALTERAR_PERFIL','ALTERAR_ACESSOS','DESATIVAR_CONTA','REATIVAR_CONTA','EXCLUIR_USUARIO','ALTERACAO')";
   const total = ctx.db.prepare(`SELECT COUNT(*) n FROM auditoria WHERE ${where}`).get().n;
   const itens = ctx.db.prepare(`SELECT id, usuario, acao, data_hora, detalhes FROM auditoria WHERE ${where}
                                 ORDER BY id DESC LIMIT ? OFFSET ?`).all(pag.tamanho, (pag.pagina - 1) * pag.tamanho)
@@ -198,6 +217,7 @@ function historicoPerfis(ctx, query = {}) {
         id: a.id, data_hora: a.data_hora, administrador: a.usuario, acao: a.acao,
         usuario_afetado: d.usuario_afetado || d.login, perfil_anterior: d.perfil_anterior || d.de?.perfil,
         perfil_novo: d.perfil_novo || d.para?.perfil, resultado: d.resultado || 'SUCESSO', motivo: d.motivo || '',
+        adicionais_anteriores: d.adicionais_anteriores || [], adicionais_novos: d.adicionais_novos || [],
       };
     });
   return { itens, total, pagina: pag.pagina, tamanho: pag.tamanho };

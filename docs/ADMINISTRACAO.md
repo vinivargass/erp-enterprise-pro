@@ -6,7 +6,7 @@
 | Tecnologia | Node.js (HTTP nativo) + SQLite (`node:sqlite`) + SPA em JavaScript puro. Sem Supabase/Firebase/Power BI. |
 | Autenticação | Própria do projeto (`server/auth.js`): sessão opaca em cookie HttpOnly, CSRF, scrypt. **Reutilizada**, sem sistema paralelo. |
 | Fonte oficial de permissões | Tabela `usuarios.perfil` + matriz `PERMISSOES` (`auth.js`). As permissões são **recalculadas do banco a cada requisição** (`sessao()` faz JOIN com `usuarios`), então não há cache de autorização para invalidar no cliente. |
-| Perfis | ADMIN, GERENTE, VENDEDOR, ESTOQUE, FINANCEIRO, CONSULTA. "Usuário comum" = qualquer perfil diferente de ADMIN. Há um único nível de administrador (sem hierarquia entre admins). |
+| Perfis | ADMIN, DIRETORIA, GERENTE, VENDEDOR, ESTOQUE, FINANCEIRO, CONSULTA, SEM_ACESSO. DIRETORIA (alta gestão) = Gerente + Painel executivo; SEM_ACESSO = conta nova sem módulos. "Usuário comum" = qualquer perfil diferente de ADMIN. Há um único nível de administrador (sem hierarquia entre admins). |
 | Auditoria | Tabela `auditoria` existente, reaproveitada. |
 | E-mail de usuário | **Não existe** na tabela `usuarios`. A pesquisa é por nome e login. Ver §6. |
 
@@ -45,7 +45,7 @@ A migração roda sozinha ao iniciar o servidor e **não altera nenhum usuário*
 | Painel e dados só para ADMIN | rotas `/api/admin/painel` e `/api/admin/vendas` exigem `admin.painel`; a verificação é **no servidor**, com o perfil lido do banco. |
 | Gestão de perfis só para ADMIN | rotas `/api/admin/usuarios*` e `/api/usuarios*` exigem `usuarios.gerir`. |
 | URL direta | `#/admin/...` abre a página, que pede os dados ao servidor; sem permissão recebe 403 e mostra "Acesso restrito", sem nenhum dado. A tentativa fica registrada. |
-| Nada vindo do navegador define perfil | as ações recebem só o **id** do alvo; o novo perfil é decidido no servidor (ADMIN ou `perfil_base`). Campos extras no corpo são ignorados. O autocadastro sempre cria CONSULTA. |
+| Nada vindo do navegador define perfil | as ações recebem só o **id** do alvo; o novo perfil é decidido no servidor (ADMIN ou `perfil_base`). Campos extras no corpo são ignorados. O autocadastro sempre cria SEM_ACESSO (nenhum módulo). |
 | Ninguém se eleva | sem `usuarios.gerir` → 403; admin não altera o próprio perfil. |
 | Último administrador ativo | `alterarUsuario` recusa qualquer mudança que deixe zero admins ativos (proteção em profundidade contra remoções cruzadas). A tela também desabilita o botão. |
 | Efeito imediato | toda mudança de perfil apaga as sessões abertas do usuário afetado (ele precisa entrar de novo, já com o perfil novo). |

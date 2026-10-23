@@ -14,20 +14,30 @@ function ultimosMeses(hojeIso, n) {
   return r;
 }
 
+const pode = (ctx, permissao) => (ctx.usuario.permissoes || []).includes(permissao);
+
+// Alertas do sino: cada tipo só é consultado para quem tem permissão de ver aquela área
+// (antes, qualquer usuário autenticado recebia os totais vencidos do financeiro).
 function alertas(ctx) {
   const hoje = base.hoje(ctx);
   const a = [];
-  const baixo = ctx.db.prepare(`SELECT id, codigo, descricao, ROUND(saldo - reservado, 4) disponivel, estoque_minimo FROM produtos
-      WHERE ativo = 1 AND saldo - reservado < estoque_minimo ORDER BY (saldo - reservado) - estoque_minimo LIMIT 20`).all();
-  for (const p of baixo) {
-    a.push({ nivel: p.disponivel <= 0 ? 'critico' : 'atencao', tipo: 'ESTOQUE', texto: `${p.codigo} abaixo do mínimo: disponível ${p.disponivel}, mínimo ${p.estoque_minimo}`, rota: `#/estoque?produto=${p.id}` });
+  if (pode(ctx, 'estoque.ler')) {
+    const baixo = ctx.db.prepare(`SELECT id, codigo, descricao, ROUND(saldo - reservado, 4) disponivel, estoque_minimo FROM produtos
+        WHERE ativo = 1 AND saldo - reservado < estoque_minimo ORDER BY (saldo - reservado) - estoque_minimo LIMIT 20`).all();
+    for (const p of baixo) {
+      a.push({ nivel: p.disponivel <= 0 ? 'critico' : 'atencao', tipo: 'ESTOQUE', texto: `${p.codigo} abaixo do mínimo: disponível ${p.disponivel}, mínimo ${p.estoque_minimo}`, rota: `#/estoque?produto=${p.id}` });
+    }
   }
-  const venc = ctx.db.prepare(`SELECT tipo, COUNT(*) n, SUM(saldo_cent) v FROM titulos WHERE situacao <> 'LIQUIDADO' AND vencimento < ? GROUP BY tipo`).all(hoje);
-  for (const v of venc) {
-    a.push({ nivel: 'critico', tipo: 'FINANCEIRO', texto: `${v.n} título(s) a ${v.tipo === 'R' ? 'receber' : 'pagar'} vencido(s): R$ ${reais(v.v).toFixed(2).replace('.', ',')}`, rota: v.tipo === 'R' ? '#/financeiro/receber?situacao=VENCIDO' : '#/financeiro/pagar?situacao=VENCIDO' });
+  if (pode(ctx, 'financeiro.ler')) {
+    const venc = ctx.db.prepare(`SELECT tipo, COUNT(*) n, SUM(saldo_cent) v FROM titulos WHERE situacao <> 'LIQUIDADO' AND vencimento < ? GROUP BY tipo`).all(hoje);
+    for (const v of venc) {
+      a.push({ nivel: 'critico', tipo: 'FINANCEIRO', texto: `${v.n} título(s) a ${v.tipo === 'R' ? 'receber' : 'pagar'} vencido(s): R$ ${reais(v.v).toFixed(2).replace('.', ',')}`, rota: v.tipo === 'R' ? '#/financeiro/receber?situacao=VENCIDO' : '#/financeiro/pagar?situacao=VENCIDO' });
+    }
   }
-  const pend = ctx.db.prepare("SELECT COUNT(*) n FROM pedidos WHERE status = 'PENDENTE_APROVACAO'").get().n;
-  if (pend) a.push({ nivel: 'atencao', tipo: 'PEDIDO', texto: `${pend} pedido(s) aguardando aprovação`, rota: '#/pedidos?status=PENDENTE_APROVACAO' });
+  if (pode(ctx, 'pedidos.aprovar')) {
+    const pend = ctx.db.prepare("SELECT COUNT(*) n FROM pedidos WHERE status = 'PENDENTE_APROVACAO'").get().n;
+    if (pend) a.push({ nivel: 'atencao', tipo: 'PEDIDO', texto: `${pend} pedido(s) aguardando aprovação`, rota: '#/pedidos?status=PENDENTE_APROVACAO' });
+  }
   return a;
 }
 
@@ -54,8 +64,11 @@ function resumo(ctx, query = {}) {
   const porStatus = db.prepare('SELECT status, COUNT(*) n, SUM(total_liquido_cent) v FROM pedidos GROUP BY status').all()
     .map((r) => ({ status: r.status, quantidade: r.n, valor: reais(r.v || 0) }));
 
-  const atividades = db.prepare('SELECT entidade, entidade_id, acao, usuario, data_hora, detalhes FROM auditoria ORDER BY id DESC LIMIT 10').all()
-    .map((r) => ({ ...r, detalhes: JSON.parse(r.detalhes) }));
+  // A trilha de auditoria tem permissão própria: não vem junto com os indicadores para quem não pode vê-la.
+  const atividades = pode(ctx, 'auditoria.ler')
+    ? db.prepare('SELECT entidade, entidade_id, acao, usuario, data_hora, detalhes FROM auditoria ORDER BY id DESC LIMIT 10').all()
+      .map((r) => ({ ...r, detalhes: JSON.parse(r.detalhes) }))
+    : null;
 
   // Itens vendidos no período (pedidos faturados) e sua distribuição por grupo de produto (categoria).
   const itens = db.prepare(`SELECT COALESCE(SUM(i.quantidade),0) q FROM pedido_itens i JOIN pedidos p ON p.id = i.pedido_id
@@ -69,7 +82,7 @@ function resumo(ctx, query = {}) {
 
   // Pedidos recentes: só para quem pode ver pedidos; vendedor vê apenas os próprios.
   let pedidosRecentes = null;
-  if ((ctx.usuario.permissoes || []).includes('pedidos.ler')) {
+  if (pode(ctx, 'pedidos.ler')) {
     const so = ctx.usuario.perfil === 'VENDEDOR';
     pedidosRecentes = db.prepare(`SELECT p.id, p.numero, c.razao_social cliente, p.total_liquido_cent, p.status, p.emissao
         FROM pedidos p JOIN clientes c ON c.id = p.cliente_id ${so ? 'WHERE p.vendedor = ?' : ''}

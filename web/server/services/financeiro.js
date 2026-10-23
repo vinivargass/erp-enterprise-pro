@@ -85,4 +85,30 @@ function liquidar(ctx, id, dados, chaveIdempotencia) {
   });
 }
 
-module.exports = { listar, obter, liquidar };
+
+// Ajuste de título em aberto (perfil FINANCEIRO/ADMIN): só vencimento e observação (campo "historico").
+// Valor, saldo, participante e situação nunca mudam por aqui; título liquidado fica congelado.
+function editar(ctx, id, dados) {
+  const d = new Validador(dados)
+    .data('vencimento')
+    .texto('historico', { max: 250 })
+    .resultado();
+  return transacao(ctx.db, () => {
+    const t = ctx.db.prepare('SELECT * FROM titulos WHERE id = ?').get(Number(id));
+    if (!t) throw erro.naoEncontrado('Título não encontrado.');
+    base.exigirVersao(dados.versao, t.versao);
+    if (t.situacao === 'LIQUIDADO') throw erro.regra('Título liquidado não pode ser alterado.');
+    if (d.vencimento < t.emissao) throw erro.validacao('Vencimento anterior à emissão.', { vencimento: 'Anterior à emissão.' });
+    const historico = Object.prototype.hasOwnProperty.call(dados || {}, 'historico') ? d.historico : t.historico;
+    const diff = {};
+    if (d.vencimento !== t.vencimento) diff.vencimento = { de: t.vencimento, para: d.vencimento };
+    if (historico !== t.historico) diff.observacao = { de: t.historico, para: historico };
+    if (!Object.keys(diff).length) return obter(ctx, id);
+    const r = ctx.db.prepare('UPDATE titulos SET vencimento = ?, historico = ?, versao = versao + 1 WHERE id = ? AND versao = ?')
+      .run(d.vencimento, historico, t.id, t.versao);
+    if (r.changes !== 1) throw erro.conflito('Título alterado por outra operação. Recarregue e tente novamente.');
+    base.auditar(ctx, 'TITULO', t.id, 'ALTERACAO', { numero: t.numero, parcela: t.parcela, ...diff });
+    return obter(ctx, id);
+  });
+}
+module.exports = { listar, obter, liquidar, editar };

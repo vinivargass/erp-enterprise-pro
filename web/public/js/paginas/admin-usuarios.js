@@ -1,18 +1,23 @@
 // Gestão do perfil Admin (somente ADMIN). Toda decisão de segurança é do servidor:
 // esta tela só envia a intenção ("conceder"/"remover") para o id escolhido.
 import { get, post } from '../api.js';
-import { h, selo, confirmar, modal, toast, toastErro, dataHora, tabelaRemota, atrasar, acessoNegado } from '../ui.js';
+import { h, selo, confirmar, modal, toast, toastErro, dataHora, tabelaRemota, atrasar, acessoNegado, acoesLinha } from '../ui.js';
 import { navAdmin } from './admin-painel.js';
 
-const ROT_ACAO = { CONCEDER_ADMIN: 'Concedeu Admin', REMOVER_ADMIN: 'Removeu Admin', ALTERAR_PERFIL: 'Alterou perfil', DESATIVAR_CONTA: 'Desativou conta', REATIVAR_CONTA: 'Reativou conta', ALTERACAO: 'Alterou perfil' };
-const COR_PERFIL = { ADMIN: 'info', GERENTE: 'alerta', VENDEDOR: 'ok', ESTOQUE: 'ok', FINANCEIRO: 'ok', CONSULTA: 'neutro' };
-const ROT_PERFIL = { ADMIN: 'Admin', GERENTE: 'Gerente', VENDEDOR: 'Vendedor', ESTOQUE: 'Estoque', FINANCEIRO: 'Financeiro', CONSULTA: 'Consulta' };
+const ROT_ACAO = { CONCEDER_ADMIN: 'Concedeu Admin', REMOVER_ADMIN: 'Removeu Admin', ALTERAR_PERFIL: 'Alterou perfil', ALTERAR_ACESSOS: 'Alterou acessos adicionais', DESATIVAR_CONTA: 'Desativou conta', REATIVAR_CONTA: 'Reativou conta', ALTERACAO: 'Alterou perfil' };
+const COR_PERFIL = { ADMIN: 'info', DIRETORIA: 'info', GERENTE: 'alerta', VENDEDOR: 'ok', ESTOQUE: 'ok', FINANCEIRO: 'ok', CONSULTA: 'neutro', SEM_ACESSO: 'neutro' };
+const ROT_PERFIL = { ADMIN: 'Admin', DIRETORIA: 'Diretoria', GERENTE: 'Gerente', VENDEDOR: 'Vendedor', ESTOQUE: 'Estoque', FINANCEIRO: 'Financeiro', CONSULTA: 'Consulta', SEM_ACESSO: 'Sem acesso' };
 
 export async function render(ctx) {
   ctx.migalhas(['Administração', 'Usuários e perfis']);
   // Primeira consulta antes de montar a tela: se o servidor negar (403), mostra "acesso restrito".
   let catalogo;
   try { catalogo = await get('/api/admin/perfis'); } catch (e) { if (e.status === 403) return acessoNegado(); throw e; }
+
+  // Nome legível de cada acesso adicional (vindo do catálogo do servidor).
+  const ROT_ADICIONAL = Object.fromEntries(catalogo.flatMap((p) => p.adicionais.map((a) => [a.permissao, a.rotulo])));
+  const rotulosAdicionais = (u) => u.adicionais.map((k) => ROT_ADICIONAL[k] || k).join(', ');
+  const listaAdicionais = (l) => (l?.length ? l.map((k) => ROT_ADICIONAL[k] || k).join(', ') : 'nenhum');
 
   const estado = { q: ctx.query.q || '', perfil: 'todos', status: '', ordem: 'nome', direcao: 'asc', pagina: 1, tamanho: 10 };
   const resumo = h('p', { class: 'resumo-admins', 'aria-live': 'polite' });
@@ -34,7 +39,8 @@ export async function render(ctx) {
       { chave: 'login', titulo: 'Usuário', ordenavel: true, render: (u) => h('code', {}, u.login) },
       { chave: 'perfil', titulo: 'Perfil atual', ordenavel: true, render: (u) => h('span', {},
         selo(ROT_PERFIL[u.perfil] || u.perfil, COR_PERFIL[u.perfil] || 'neutro'),
-        h('small', { class: 'muted' }, u.admin ? ' administrador' : ' usuário comum')) },
+        h('small', { class: 'muted' }, u.admin ? ' administrador' : ' usuário comum'),
+        u.adicionais?.length ? h('small', { class: 'selo-adicional', title: rotulosAdicionais(u) }, ` +${u.adicionais.length} adicional(is)`) : null) },
       { chave: 'ativo', titulo: 'Status', ordenavel: true, render: (u) => (u.ativo ? selo('Ativa', 'ok') : selo('Inativa', 'neutro')) },
       { chave: 'acao', titulo: 'Ação', render: acaoDe },
     ],
@@ -42,17 +48,17 @@ export async function render(ctx) {
 
   function acaoDe(u) {
     if (u.voce) return h('span', { class: 'muted', title: 'Você não pode alterar o próprio perfil de administrador.' }, 'Seu próprio acesso');
+    // Último administrador ativo: nada que reduza o acesso dele é oferecido (o servidor também bloqueia).
     const ultimo = u.admin && u.ativo && adminsAtivos <= 1;
-    const rapido = u.admin
-      ? h('button', { class: 'btn btn-pequeno btn-perigo', disabled: ultimo,
-        title: ultimo ? 'Último administrador ativo: conceda Admin a outra pessoa antes.' : null, onclick: () => alterar(u, false) }, 'Remover administrador')
-      : h('button', { class: 'btn btn-pequeno btn-primario', disabled: !u.ativo, title: u.ativo ? null : 'Conta inativa: reative antes.',
-        onclick: () => alterar(u, true) }, 'Tornar administrador');
-    return h('div', { class: 'acoes-linha' }, rapido,
-      h('button', { class: 'btn btn-pequeno', disabled: ultimo, title: ultimo ? 'Último administrador ativo.' : 'Escolher outro perfil (vendedor, estoque...)',
-        onclick: () => escolherPerfil(u) }, 'Alterar perfil'),
-      h('button', { class: `btn btn-pequeno ${u.ativo ? 'btn-perigo' : ''}`, disabled: ultimo,
-        title: ultimo ? 'Último administrador ativo.' : null, onclick: () => alternarAtivo(u) }, u.ativo ? 'Desativar conta' : 'Reativar conta'));
+    const principal = h('button', { class: 'btn btn-pequeno', disabled: ultimo,
+      title: ultimo ? 'Último administrador ativo: conceda Admin a outra pessoa antes.' : 'Escolher o perfil e os acessos adicionais (inclusive Admin)',
+      onclick: () => escolherPerfil(u) }, 'Alterar perfil');
+    if (ultimo) return acoesLinha(principal);
+    return acoesLinha(principal, [
+      u.admin ? { rotulo: 'Remover administrador', perigo: true, acao: () => removerAdmin(u) } : null,
+      u.ativo ? { rotulo: 'Desativar conta', perigo: true, acao: () => alternarAtivo(u) }
+        : { rotulo: 'Reativar conta', sensivel: true, acao: () => alternarAtivo(u) },
+    ]);
   }
 
   async function alternarAtivo(u) {
@@ -74,37 +80,85 @@ export async function render(ctx) {
     historico.atualizar();
   }
 
-  // Janela com todos os perfis e o que cada um pode acessar (lista vinda do servidor).
+  // Janela com todos os perfis, o que cada um acessa e os acessos adicionais que o Admin pode liberar
+  // (listas vindas do servidor, que valida tudo de novo ao salvar).
   function escolherPerfil(u) {
     let escolhido = u.perfil;
+    const marcados = new Set(u.adicionais || []);
     const msg = h('p', { class: 'erro-form', role: 'alert' });
+    const caixaAdicionais = h('div', { class: 'perfil-adicionais' });
+    const contagem = h('p', { class: 'perfil-contagem', 'aria-live': 'polite' });
+    const doPerfil = (perfil) => catalogo.find((p) => p.perfil === perfil);
+
+    // Contagem a partir das permissões efetivas: as do perfil + os adicionais marcados.
+    function atualizarContagem() {
+      const p = doPerfil(escolhido);
+      const extras = p.adicionais.filter((a) => marcados.has(a.permissao)).length;
+      contagem.textContent = `Acessos efetivos: ${p.acessos.length + extras}`
+        + (extras ? ` (${p.acessos.length} do perfil + ${extras} adicional(is))` : ' (padrão do perfil)');
+    }
+    function desenharAdicionais() {
+      const p = doPerfil(escolhido);
+      // ao trocar de perfil, só ficam marcados os adicionais que o novo perfil admite
+      for (const k of [...marcados]) if (!p.adicionais.some((a) => a.permissao === k)) marcados.delete(k);
+      caixaAdicionais.replaceChildren(
+        h('h3', {}, 'Acessos adicionais'),
+        p.adicionais.length
+          ? h('div', { class: 'perfil-adicionais-lista' }, p.adicionais.map((a) => {
+            const id = `adic-${a.permissao.replace('.', '-')}`;
+            return h('label', { for: id }, h('input', { type: 'checkbox', id, checked: marcados.has(a.permissao),
+              onchange: (ev) => { if (ev.target.checked) marcados.add(a.permissao); else marcados.delete(a.permissao); msg.textContent = ''; atualizarContagem(); } }),
+            ' ', a.rotulo);
+          }))
+          : h('p', { class: 'muted' }, escolhido === 'ADMIN' ? 'O Admin já tem todos os acessos.' : 'Este perfil não tem acessos adicionais.'));
+      atualizarContagem();
+    }
+
     const opcoes = h('div', { class: 'perfis-lista', role: 'radiogroup', 'aria-label': 'Perfis disponíveis' },
       catalogo.map((p) => {
         const id = `perfil-${p.perfil}`;
-        const radio = h('input', { type: 'radio', name: 'perfil', id, value: p.perfil, checked: p.perfil === u.perfil,
-          onchange: () => { escolhido = p.perfil; msg.textContent = ''; } });
+        // Conta inativa não pode virar Admin (o servidor também recusa): reative antes.
+        const bloqueado = p.perfil === 'ADMIN' && !u.ativo && u.perfil !== 'ADMIN';
+        const radio = h('input', { type: 'radio', name: 'perfil', id, value: p.perfil, checked: p.perfil === u.perfil, disabled: bloqueado,
+          title: bloqueado ? 'Conta inativa: reative antes de conceder Admin.' : null,
+          onchange: () => { escolhido = p.perfil; msg.textContent = ''; desenharAdicionais(); } });
         return h('label', { class: 'perfil-opcao', for: id }, radio,
           h('div', {},
             h('div', { class: 'perfil-titulo' }, selo(ROT_PERFIL[p.perfil] || p.perfil, COR_PERFIL[p.perfil] || 'neutro'),
               p.perfil === u.perfil ? h('small', { class: 'muted' }, ' perfil atual') : null),
             h('p', { class: 'perfil-desc' }, p.descricao),
-            h('details', {}, h('summary', {}, `${p.acessos.length} acesso(s) liberado(s)`),
-              h('ul', { class: 'perfil-acessos' }, p.acessos.map((a) => h('li', {}, a))))));
+            p.acessos.length
+              ? h('details', {}, h('summary', {}, `${p.acessos.length} acesso(s) do perfil`),
+                h('ul', { class: 'perfil-acessos' }, p.acessos.map((a) => h('li', {}, a))))
+              : h('small', { class: 'muted' }, 'Nenhum módulo liberado.')));
       }));
+    desenharAdicionais();
+
     const salvar = h('button', { class: 'btn btn-primario', onclick: async () => {
-      if (escolhido === u.perfil) { msg.textContent = 'Escolha um perfil diferente do atual.'; return; }
+      const lista = [...marcados].sort();
+      const mudouAdicionais = lista.join() !== [...(u.adicionais || [])].sort().join();
+      if (escolhido === u.perfil && !mudouAdicionais) { msg.textContent = 'Nada foi alterado: escolha outro perfil ou marque/desmarque um acesso adicional.'; return; }
       const de = ROT_PERFIL[u.perfil]; const para = ROT_PERFIL[escolhido];
-      const ok = await confirmar({
+      // Promoção a Admin: confirmação própria e explícita (é o único caminho para conceder Admin na tela).
+      const ok = await confirmar(escolhido === 'ADMIN' && u.perfil !== 'ADMIN' ? {
+        titulo: 'Conceder perfil de administrador',
+        mensagem: `Deseja realmente tornar ${u.nome} (${u.login}) administrador? Ele terá acesso completo ao sistema, inclusive à gestão de usuários e perfis, e as sessões abertas dele serão encerradas.`,
+        botao: 'Conceder Admin', perigo: true,
+      } : escolhido !== u.perfil ? {
         titulo: 'Confirmar mudança de perfil',
         mensagem: `Deseja realmente alterar o perfil de ${u.nome} (${u.login}) de ${de} para ${para}? `
-          + 'Ele passará a acessar somente o que o novo perfil permite, e as sessões abertas dele serão encerradas.',
+          + 'Ele passará a acessar somente o que o novo perfil (e os adicionais marcados) permite, e as sessões abertas dele serão encerradas.',
         botao: `Alterar para ${para}`, perigo: u.admin,
+      } : {
+        titulo: 'Confirmar acessos adicionais',
+        mensagem: `Deseja salvar os acessos adicionais de ${u.nome} (${u.login})? As sessões abertas dele serão encerradas para aplicar a mudança.`,
+        botao: 'Salvar acessos',
       });
       if (!ok) return;
       salvar.disabled = true;
       try {
-        const r = await post(`/api/admin/usuarios/${u.id}/perfil`, { perfil: escolhido });
-        toast(`${r.nome} agora tem o perfil ${ROT_PERFIL[r.perfil] || r.perfil}. A conta continua ativa.`, 'ok', 'Perfil atualizado');
+        const r = await post(`/api/admin/usuarios/${u.id}/perfil`, { perfil: escolhido, adicionais: lista });
+        toast(`${r.nome}: perfil ${ROT_PERFIL[r.perfil] || r.perfil}${r.adicionais.length ? ` + ${r.adicionais.length} acesso(s) adicional(is)` : ''}. A conta continua ativa.`, 'ok', 'Acesso atualizado');
         m.fechar();
       } catch (e) {
         msg.textContent = e.message;
@@ -112,18 +166,16 @@ export async function render(ctx) {
       } finally { salvar.disabled = false; }
       tabela.atualizar();
       historico.atualizar();
-    } }, 'Salvar perfil');
-    const m = modal({ titulo: `Perfil de ${u.nome}`, corpo: h('div', {},
-      h('p', { class: 'muted', style: 'margin-top:0' }, 'Cada perfil libera só as telas e ações da sua área. O bloqueio é feito pelo servidor.'), opcoes, msg),
+    } }, 'Salvar');
+    const m = modal({ titulo: `Perfil de acesso de ${u.nome}`, corpo: h('div', {},
+      h('p', { class: 'muted', style: 'margin-top:0' }, 'Cada perfil libera só as telas e ações da sua área. Os acessos adicionais complementam o perfil escolhido. O bloqueio é feito pelo servidor.'),
+      opcoes, caixaAdicionais, contagem, msg),
     rodape: [h('button', { class: 'btn', onclick: () => m.fechar() }, 'Cancelar'), salvar] });
   }
 
-  async function alterar(u, conceder) {
-    const ok = await confirmar(conceder ? {
-      titulo: 'Conceder perfil de administrador',
-      mensagem: `Deseja realmente conceder o perfil de administrador a ${u.nome} (${u.login})? Ele passará a ter acesso às funcionalidades administrativas autorizadas para esse perfil.`,
-      botao: 'Conceder Admin',
-    } : {
+  // Atalho de "Mais ações": a pessoa volta ao perfil comum que tinha antes (ou Consulta).
+  async function removerAdmin(u) {
+    const ok = await confirmar({
       titulo: 'Remover perfil de administrador',
       mensagem: `Deseja realmente remover o perfil de administrador de ${u.nome} (${u.login})? Ele perderá as permissões administrativas, mas sua conta continuará ativa (perfil: ${ROT_PERFIL[u.perfil_comum] || u.perfil_comum}).`,
       botao: 'Remover Admin', perigo: true,
@@ -131,9 +183,8 @@ export async function render(ctx) {
     if (!ok) { toast('Operação cancelada. Nenhuma alteração foi feita.', 'alerta'); return; }
     try {
       // A mensagem de sucesso só aparece depois que o servidor confirmou a gravação.
-      const r = await post(`/api/admin/usuarios/${u.id}/${conceder ? 'conceder-admin' : 'remover-admin'}`);
-      toast(conceder ? `${r.nome} agora é administrador. As sessões abertas dele foram encerradas para aplicar o novo perfil.`
-        : `${r.nome} não é mais administrador (perfil atual: ${ROT_PERFIL[r.perfil] || r.perfil}). A conta continua ativa.`, 'ok', 'Perfil atualizado');
+      const r = await post(`/api/admin/usuarios/${u.id}/remover-admin`);
+      toast(`${r.nome} não é mais administrador (perfil atual: ${ROT_PERFIL[r.perfil] || r.perfil}). A conta continua ativa.`, 'ok', 'Perfil atualizado');
     } catch (e) {
       toastErro(e, 'A alteração NÃO foi feita');
     }
@@ -167,6 +218,8 @@ export async function render(ctx) {
       { chave: 'acao', titulo: 'Ação', render: (a) => ROT_ACAO[a.acao] || a.acao },
       { chave: 'perfil_anterior', titulo: 'Perfil anterior', render: (a) => ROT_PERFIL[a.perfil_anterior] || a.perfil_anterior || '—' },
       { chave: 'perfil_novo', titulo: 'Perfil novo', render: (a) => ROT_PERFIL[a.perfil_novo] || a.perfil_novo || '—' },
+      { chave: 'adicionais', titulo: 'Acessos adicionais', quebra: true, render: (a) => (a.adicionais_anteriores.length || a.adicionais_novos.length
+        ? h('small', {}, `${listaAdicionais(a.adicionais_anteriores)} → ${listaAdicionais(a.adicionais_novos)}`) : '—') },
       { chave: 'resultado', titulo: 'Resultado', quebra: true, render: (a) => h('span', {},
         selo(a.resultado === 'SUCESSO' ? 'Sucesso' : a.resultado === 'NEGADO' ? 'Negado' : 'Falha', a.resultado === 'SUCESSO' ? 'ok' : 'erro'),
         a.motivo ? h('small', { class: 'muted' }, ' ' + a.motivo) : null) },
@@ -182,7 +235,7 @@ export async function render(ctx) {
     h('section', { class: 'bi-tile' },
       h('div', { class: 'filtros', role: 'search' }, h('label', {}, 'Pesquisar', busca), h('div', { class: 'grupo-filtro' }, h('span', {}, 'Mostrar'), chips), h('label', {}, 'Perfil', selPerfil), h('label', {}, 'Conta', selStatus)),
       resumo, tabela.el,
-      h('p', { class: 'muted', style: 'margin-bottom:0' }, 'Use "Alterar perfil" para escolher qualquer perfil (vendedor, estoque, financeiro...) e ver o que cada um acessa. Ao remover o Admin pelo botão rápido, a pessoa volta ao perfil comum que tinha antes (ou Consulta). As sessões abertas dela são encerradas na hora.')),
+      h('p', { class: 'muted', style: 'margin-bottom:0' }, 'Use "Alterar perfil" para escolher qualquer perfil (vendedor, estoque, financeiro...), ver o que cada um acessa e liberar acessos adicionais. Para tornar alguém administrador, escolha Admin em "Alterar perfil". Em "Mais ações", "Remover administrador" devolve a pessoa ao perfil comum que tinha antes (ou Consulta). As sessões abertas dela são encerradas na hora.')),
     h('section', { class: 'bi-tile', style: 'margin-top:12px', 'aria-labelledby': 'hist' },
       h('h2', { id: 'hist' }, 'Histórico de alterações de perfil'), historico.el));
 }

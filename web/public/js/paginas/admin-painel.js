@@ -5,8 +5,8 @@ import {
   h, moeda, moedaCurta, numero, data, dataHora, rotuloStatus, tabelaRemota, atrasar, falha, acessoNegado,
 } from '../ui.js';
 import { barrasVerticais, barrasHorizontais, linha, rosca } from '../grafico.js';
+import { MESES } from '../idioma.js';
 
-const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const rotuloMes = (m) => `${MESES[Number(m.slice(5)) - 1]}/${m.slice(2, 4)}`;
 
 export function navAdmin(ctx, atual) {

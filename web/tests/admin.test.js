@@ -117,7 +117,7 @@ describe('Gestão do perfil Admin', () => {
 
   test('alterar para qualquer perfil: cada um fica LIMITADO à sua área (validado no servidor)', async () => {
     const cat = (await adm.get('/api/admin/perfis')).corpo;
-    assert.deepEqual(cat.map((p) => p.perfil), ['ADMIN', 'GERENTE', 'VENDEDOR', 'ESTOQUE', 'FINANCEIRO', 'CONSULTA']);
+    assert.deepEqual(cat.map((p) => p.perfil), ['ADMIN', 'DIRETORIA', 'GERENTE', 'VENDEDOR', 'ESTOQUE', 'FINANCEIRO', 'CONSULTA', 'SEM_ACESSO']);
     assert.ok(cat.find((p) => p.perfil === 'ESTOQUE').acessos.includes('Movimentar estoque'));
     assert.ok(!cat.find((p) => p.perfil === 'VENDEDOR').acessos.includes('Liquidar títulos'));
 
@@ -128,7 +128,8 @@ describe('Gestão do perfil Admin', () => {
       ['ESTOQUE', ['/api/estoque/saldos'], ['/api/pedidos', '/api/financeiro/receber', '/api/admin/painel']],
       ['FINANCEIRO', ['/api/financeiro/receber'], ['/api/admin/usuarios', '/api/auditoria']],
       ['VENDEDOR', ['/api/pedidos'], ['/api/financeiro/receber', '/api/admin/painel']],
-      ['GERENTE', ['/api/auditoria', '/api/financeiro/receber'], ['/api/admin/painel', '/api/admin/usuarios']],
+      // gerente: auditoria e financeiro só como acesso adicional
+      ['GERENTE', ['/api/pedidos', '/api/clientes'], ['/api/auditoria', '/api/financeiro/receber', '/api/admin/painel', '/api/admin/usuarios']],
     ];
     for (const [perfil, pode, naoPode] of casos) {
       const r = await adm.post(`/api/admin/usuarios/${id}/perfil`, { perfil });
@@ -154,7 +155,7 @@ describe('Gestão do perfil Admin', () => {
     const id = idDe('carlos.ativo');
     const r = await adm.post(`/api/admin/usuarios/${id}/ativo`, { ativo: false });
     assert.equal(r.status, 200);
-    assert.deepEqual(perfilDe('carlos.ativo'), { perfil: 'CONSULTA', ativo: 0 });
+    assert.deepEqual(perfilDe('carlos.ativo'), { perfil: 'SEM_ACESSO', ativo: 0 });
     const login = await fetch(amb.url + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login: 'carlos.ativo', senha: 'Segura2026' }) });
     assert.equal(login.status, 401, 'conta desativada não entra');
     assert.equal((await adm.post(`/api/admin/usuarios/${id}/ativo`, { ativo: false })).status, 422, 'já desativada');
@@ -197,7 +198,8 @@ describe('Gestão do perfil Admin', () => {
     const lg = await fetch(amb.url + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login: 'hist.vend', senha: 'Segura2026' }) });
     const { csrf } = await lg.json();
     const ck = lg.headers.get('set-cookie').split(';')[0];
-    const cli = (await adm.get('/api/clientes?status=ativo&tamanho=1')).corpo.itens[0];
+    // cliente da carteira do novo vendedor (o vendedor só emite pedidos para a própria carteira)
+    const cli = (await adm.post('/api/clientes', clienteValido({ vendedor: 'hist.vend' }))).corpo;
     const prod = (await adm.get('/api/produtos?status=ativo&tamanho=1')).corpo.itens[0];
     const ped = await fetch(amb.url + '/api/pedidos', { method: 'POST', headers: { Cookie: ck, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' },
       body: JSON.stringify({ cliente_id: cli.id, itens: [{ produto_id: prod.id, quantidade: 1 }] }) });

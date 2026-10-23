@@ -1,5 +1,5 @@
 import { get, post } from '../api.js';
-import { h, cabecalho, tabelaRemota, tabela, formulario, modal, toast, numero, dataHora, selo, atrasar, carregando, falha } from '../ui.js';
+import { h, cabecalho, tabelaRemota, tabela, formulario, modal, toast, numero, dataHora, selo, atrasar, carregando, falha, acoesLinha } from '../ui.js';
 
 const ORIGENS = { SALDO_INICIAL: 'Saldo inicial', MANUAL: 'Manual', PEDIDO: 'Pedido de venda' };
 
@@ -20,9 +20,9 @@ export async function render(ctx) {
         { chave: 'disponivel', titulo: 'Disponível', num: true, render: (r) => numero(r.disponivel) },
         { chave: 'estoque_minimo', titulo: 'Mínimo', num: true, render: (r) => numero(r.estoque_minimo) },
         { chave: 'abaixo_minimo', titulo: 'Situação', render: (r) => (r.abaixo_minimo ? selo('Abaixo do mínimo', 'erro') : selo('Normal', 'ok')) },
-        { chave: 'acoes', titulo: '', render: (r) => h('div', { class: 'acoes-linha' },
-          h('button', { class: 'btn btn-pequeno', onclick: () => { movs.produto_id = r.id; movs.pagina = 1; rotuloKardex.textContent = `Kardex: ${r.codigo} - ${r.descricao}`; limpar.hidden = false; tMov.atualizar(); document.getElementById('sec-mov').scrollIntoView({ behavior: 'smooth' }); } }, 'Kardex'),
-          podeMov ? h('button', { class: 'btn btn-pequeno', onclick: () => novaMov(r) }, 'Movimentar') : null) },
+        { chave: 'acoes', titulo: 'Ações', render: (r) => acoesLinha(
+          h('button', { class: 'btn btn-pequeno', onclick: () => { movs.produto_id = r.id; movs.pagina = 1; rotuloMovs.textContent = `Histórico de movimentações: ${r.codigo} - ${r.descricao}`; limpar.hidden = false; tMov.atualizar(); document.getElementById('sec-mov').scrollIntoView({ behavior: 'smooth' }); } }, 'Movimentações'),
+          [podeMov ? { rotulo: 'Movimentar estoque', acao: () => novaMov(r) } : null]) },
       ], linhas, 'Nenhum produto com os filtros informados.'));
     } catch (e) { saldosEl.replaceChildren(falha(e, carregarSaldos)); }
   }
@@ -80,24 +80,24 @@ export async function render(ctx) {
 
   const busca = h('input', { type: 'search', placeholder: 'Código ou descrição…', 'aria-label': 'Pesquisar saldos' });
   busca.addEventListener('input', atrasar(() => { filtroSaldo.q = busca.value; carregarSaldos(); }));
-  const rotuloKardex = h('span', {}, 'Todas as movimentações');
-  const limpar = h('button', { class: 'btn btn-pequeno', hidden: !movs.produto_id, onclick: () => { movs.produto_id = ''; movs.pagina = 1; rotuloKardex.textContent = 'Todas as movimentações'; limpar.hidden = true; tMov.atualizar(); } }, 'Mostrar todos os produtos');
+  const rotuloMovs = h('span', {}, 'Todas as movimentações');
+  const limpar = h('button', { class: 'btn btn-pequeno', hidden: !movs.produto_id, onclick: () => { movs.produto_id = ''; movs.pagina = 1; rotuloMovs.textContent = 'Todas as movimentações'; limpar.hidden = true; tMov.atualizar(); } }, 'Mostrar todos os produtos');
   const filtroMov = (rot, chave, opcoes) => h('label', {}, rot, h('select', { onchange: (ev) => { movs[chave] = ev.target.value; movs.pagina = 1; tMov.atualizar(); } }, opcoes.map(([v, tx]) => h('option', { value: v }, tx))));
   const dataMov = (rot, chave) => h('label', {}, rot, h('input', { type: 'date', onchange: (ev) => { movs[chave] = ev.target.value; movs.pagina = 1; tMov.atualizar(); } }));
 
   if (movs.produto_id) {
-    try { const p = await get(`/api/produtos/${movs.produto_id}`); rotuloKardex.textContent = `Kardex: ${p.codigo} - ${p.descricao}`; } catch { /* filtro inválido é ignorado */ }
+    try { const p = await get(`/api/produtos/${movs.produto_id}`); rotuloMovs.textContent = `Histórico de movimentações: ${p.codigo} - ${p.descricao}`; } catch { /* filtro inválido é ignorado */ }
   }
   carregarSaldos();
   tMov.atualizar();
   return h('div', {},
-    cabecalho('Controle de estoque', 'Equivalente Protheus: SB2 (saldos) e SD3 (movimentos internos via MATA240) — ZERPEST.PRW'),
+    cabecalho('Controle de estoque', 'Acompanhe saldos, reservas e movimentações de produtos.'),
     h('section', { class: 'cartao' }, h('h2', {}, 'Saldos por produto'),
       h('div', { class: 'filtros', role: 'search' }, h('label', {}, 'Pesquisa', busca),
         h('label', {}, 'Situação', h('select', { onchange: (ev) => { filtroSaldo.situacao = ev.target.value; carregarSaldos(); } },
           h('option', { value: '' }, 'Todos'), h('option', { value: 'abaixo', selected: filtroSaldo.situacao === 'abaixo' }, 'Abaixo do mínimo')))),
       saldosEl),
-    h('section', { class: 'cartao', id: 'sec-mov' }, h('h2', {}, rotuloKardex),
+    h('section', { class: 'cartao', id: 'sec-mov' }, h('h2', {}, rotuloMovs),
       h('div', { class: 'filtros' },
         filtroMov('Tipo', 'tipo', [['', 'Todos'], ['E', 'Entradas'], ['S', 'Saídas']]),
         filtroMov('Origem', 'origem', [['', 'Todas'], ...Object.entries(ORIGENS)]),

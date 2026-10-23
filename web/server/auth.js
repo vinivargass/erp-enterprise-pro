@@ -26,36 +26,65 @@ function conferirSenha(senha, armazenado) {
 
 const sha256 = (t) => crypto.createHash('sha256').update(t).digest('hex');
 
-// Perfil -> permissões. A autorização é sempre verificada no servidor.
-const TODOS = ['ADMIN', 'GERENTE', 'VENDEDOR', 'ESTOQUE', 'FINANCEIRO', 'CONSULTA'];
+// Perfil -> permissões PADRÃO. A autorização é sempre verificada no servidor, a cada requisição.
+// SEM_ACESSO (conta nova aguardando liberação) não tem permissão alguma.
+// Permissões "de dado" (clientes.credito, produtos.custo) não abrem telas: decidem se campos sensíveis
+// vão para o navegador. O escopo de registros (vendedor só vê a própria carteira e os próprios pedidos)
+// fica nos serviços.
 const PERMISSOES = {
-  'dashboard.ler': TODOS,
-  'clientes.ler': TODOS,
+  'clientes.ler': ['ADMIN', 'DIRETORIA', 'GERENTE', 'VENDEDOR', 'FINANCEIRO', 'CONSULTA'],
   'clientes.gravar': ['ADMIN', 'GERENTE', 'VENDEDOR'],
   'clientes.inativar': ['ADMIN', 'GERENTE'],
-  'produtos.ler': TODOS,
-  'produtos.gravar': ['ADMIN', 'GERENTE', 'ESTOQUE'],
-  'pedidos.ler': ['ADMIN', 'GERENTE', 'VENDEDOR', 'FINANCEIRO', 'CONSULTA'],
+  'clientes.carteira': ['ADMIN', 'GERENTE'],           // vendedor responsável e limite de crédito
+  'clientes.credito': ['ADMIN', 'DIRETORIA', 'GERENTE', 'VENDEDOR', 'FINANCEIRO'],
+  'produtos.ler': ['ADMIN', 'DIRETORIA', 'GERENTE', 'VENDEDOR', 'ESTOQUE', 'CONSULTA'],
+  'produtos.gravar': ['ADMIN', 'GERENTE'],
+  'produtos.custo': ['ADMIN', 'DIRETORIA', 'GERENTE'],
+  'pedidos.ler': ['ADMIN', 'DIRETORIA', 'GERENTE', 'VENDEDOR', 'FINANCEIRO'],
   'pedidos.gravar': ['ADMIN', 'GERENTE', 'VENDEDOR'],
   'pedidos.aprovar': ['ADMIN', 'GERENTE'],
-  'pedidos.faturar': ['ADMIN', 'GERENTE'],
-  'estoque.ler': TODOS,
+  'pedidos.faturar': ['ADMIN'],
+  'pedidos.expedicao': ['ADMIN', 'ESTOQUE'],          // pedidos aprovados para separar e entregar, sem valores
+  'estoque.ler': ['ADMIN', 'DIRETORIA', 'GERENTE', 'ESTOQUE', 'CONSULTA'],
   'estoque.movimentar': ['ADMIN', 'ESTOQUE'],
-  'financeiro.ler': ['ADMIN', 'GERENTE', 'FINANCEIRO', 'CONSULTA'],
+  'financeiro.ler': ['ADMIN', 'DIRETORIA', 'FINANCEIRO'],
   'financeiro.liquidar': ['ADMIN', 'FINANCEIRO'],
-  'relatorios.ler': ['ADMIN', 'GERENTE', 'FINANCEIRO', 'ESTOQUE', 'CONSULTA', 'VENDEDOR'],
-  'parametros.ler': TODOS,
+  'financeiro.editar': ['ADMIN', 'FINANCEIRO'],       // vencimento e observação de títulos em aberto
+  'relatorios.ler': ['ADMIN', 'DIRETORIA', 'GERENTE', 'VENDEDOR', 'ESTOQUE', 'FINANCEIRO'],
+  'parametros.ler': ['ADMIN', 'DIRETORIA', 'GERENTE', 'VENDEDOR', 'ESTOQUE', 'FINANCEIRO'],
   'parametros.gravar': ['ADMIN'],
-  'auditoria.ler': ['ADMIN', 'GERENTE'],
+  'auditoria.ler': ['ADMIN'],
   'usuarios.gerir': ['ADMIN'],
   'admin.painel': ['ADMIN'],
+  // Resultados estratégicos (faturamento, ticket, margem, contas a receber/pagar, custo do estoque).
+  'painel_executivo.ler': ['ADMIN', 'DIRETORIA'],
+};
+
+// Acessos ADICIONAIS que o ADMIN pode conceder a um usuário, além do padrão do perfil. Só estes, e só
+// para estes perfis; qualquer outra combinação é recusada. No perfil Consulta só há permissões de leitura.
+const ADICIONAIS = {
+  DIRETORIA: ['pedidos.gravar', 'pedidos.aprovar', 'pedidos.faturar', 'estoque.movimentar', 'financeiro.liquidar', 'auditoria.ler'],
+  GERENTE: ['pedidos.faturar', 'financeiro.ler', 'auditoria.ler'],
+  CONSULTA: ['pedidos.ler', 'financeiro.ler', 'relatorios.ler'],
 };
 
 const permissoesDoPerfil = (perfil) => Object.keys(PERMISSOES).filter((p) => PERMISSOES[p].includes(perfil));
+const adicionaisPermitidos = (perfil) => ADICIONAIS[perfil] || [];
 
+// Permissões efetivas = padrão do perfil + adicionais concedidos que o perfil ATUAL admite.
+function permissoesEfetivas(perfil, adicionais = []) {
+  const base = permissoesDoPerfil(perfil);
+  const extras = adicionais.filter((p) => adicionaisPermitidos(perfil).includes(p) && !base.includes(p));
+  return [...base, ...extras];
+}
+const adicionaisDoUsuario = (db, usuarioId) =>
+  db.prepare('SELECT permissao FROM usuario_permissoes WHERE usuario_id = ? ORDER BY permissao').all(usuarioId).map((r) => r.permissao);
+
+// Confere a permissão na lista efetiva do usuário da sessão (carregada do banco a cada requisição).
 function exigir(usuario, permissao) {
   if (!PERMISSOES[permissao]) throw new Error(`Permissão desconhecida: ${permissao}`);
-  if (!PERMISSOES[permissao].includes(usuario.perfil)) throw erro.proibido();
+  const lista = usuario.permissoes || permissoesDoPerfil(usuario.perfil);
+  if (!lista.includes(permissao)) throw erro.proibido();
 }
 
 function criarAutenticador(db, agora, { maxCadastros = MAX_CADASTROS } = {}) {
@@ -87,7 +116,7 @@ function criarAutenticador(db, agora, { maxCadastros = MAX_CADASTROS } = {}) {
     db.prepare('DELETE FROM sessoes WHERE expira_em < ?').run(agora().getTime());
     db.prepare('INSERT INTO sessoes (token_hash, usuario_id, csrf, expira_em) VALUES (?,?,?,?)')
       .run(sha256(token), u.id, csrf, agora().getTime() + (lembrar ? SESSAO_LEMBRAR_MS : SESSAO_MS));
-    return { token, csrf, usuario: publico(u), maxAge: lembrar ? SESSAO_LEMBRAR_MS / 1000 : null };
+    return { token, csrf, usuario: publico(u, adicionaisDoUsuario(db, u.id)), maxAge: lembrar ? SESSAO_LEMBRAR_MS / 1000 : null };
   }
 
   function sessao(token) {
@@ -95,12 +124,12 @@ function criarAutenticador(db, agora, { maxCadastros = MAX_CADASTROS } = {}) {
     const s = db.prepare(`SELECT s.csrf, s.expira_em, u.* FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
                           WHERE s.token_hash = ? AND u.ativo = 1`).get(sha256(token));
     if (!s || s.expira_em < agora().getTime()) return null;
-    return { usuario: publico(s), csrf: s.csrf };
+    return { usuario: publico(s, adicionaisDoUsuario(db, s.id)), csrf: s.csrf };
   }
 
   function logout(token) { if (token) db.prepare('DELETE FROM sessoes WHERE token_hash = ?').run(sha256(token)); }
 
-  // Autocadastro: a conta nasce SEMPRE com perfil CONSULTA (somente leitura).
+  // Autocadastro: a conta nasce SEMPRE com perfil SEM_ACESSO (nenhum módulo; só a página Início).
   // Perfis com mais poder só são concedidos por um ADMIN (alterarUsuario), nunca pelo próprio usuário.
   const cadastrosPorOrigem = new Map(); // ip -> [timestamps]
   function registrar(dados, origem) {
@@ -129,7 +158,7 @@ function criarAutenticador(db, agora, { maxCadastros = MAX_CADASTROS } = {}) {
       throw erro.conflito('Este usuário já existe. Escolha outro login.', { login: 'Login já em uso.' });
     }
     try {
-      db.prepare("INSERT INTO usuarios (login, nome, perfil, senha_hash) VALUES (?, ?, 'CONSULTA', ?)")
+      db.prepare("INSERT INTO usuarios (login, nome, perfil, senha_hash) VALUES (?, ?, 'SEM_ACESSO', ?)")
         .run(loginNovo, nome, hashSenha(senha));
     } catch (e) {
       if (/UNIQUE constraint failed: usuarios\.login|ux_usuarios_login_nocase/.test(e.message)) throw erro.conflito('Este usuário já existe.', { login: 'Login já em uso.' });
@@ -154,33 +183,42 @@ function validarSenha(senha, login) {
   return null;
 }
 
-const PERFIS = ['ADMIN', 'GERENTE', 'VENDEDOR', 'ESTOQUE', 'FINANCEIRO', 'CONSULTA'];
+const PERFIS = ['ADMIN', 'DIRETORIA', 'GERENTE', 'VENDEDOR', 'ESTOQUE', 'FINANCEIRO', 'CONSULTA', 'SEM_ACESSO'];
 
 // Descrição de cada perfil exibida na tela de gestão (os acessos em si vêm de PERMISSOES).
 const DESCRICAO_PERFIS = {
-  ADMIN: 'Acesso total: todas as telas, parâmetros, painel administrativo e gestão de usuários.',
-  GERENTE: 'Comercial e supervisão: cadastros, aprova/rejeita e fatura pedidos, consulta financeiro e auditoria.',
-  VENDEDOR: 'Vendas: clientes e pedidos (somente os próprios). Sem financeiro e sem movimentar estoque.',
-  ESTOQUE: 'Almoxarifado: produtos e movimentações de estoque. Sem pedidos e sem financeiro.',
-  FINANCEIRO: 'Financeiro: consulta e liquida títulos a receber e a pagar. Não altera cadastros.',
-  CONSULTA: 'Somente leitura: visualiza cadastros, pedidos, estoque, financeiro e relatórios, sem alterar nada.',
+  ADMIN: 'Acesso completo: todos os módulos, configurações, painel administrativo, Painel executivo e gestão de usuários e perfis.',
+  DIRETORIA: 'Alta gestão: Painel executivo, relatórios e consulta a clientes, pedidos, estoque e financeiro. Sem ações operacionais por padrão (aprovar, faturar, alterar pedidos, movimentar estoque, liquidar), que o administrador pode liberar como acesso adicional.',
+  GERENTE: 'Gestão comercial: clientes, produtos e carteira dos vendedores; cria, aprova e rejeita pedidos e consulta os títulos ligados a eles. Faturamento, financeiro completo e auditoria só como acesso adicional.',
+  VENDEDOR: 'Vendas: clientes da própria carteira e os próprios pedidos; altera o pedido só em rascunho ou devolvido. Vê a disponibilidade dos produtos, sem custos. Sem financeiro e sem movimentar estoque.',
+  ESTOQUE: 'Almoxarifado: consulta produtos (sem custos), movimenta o estoque e separa os pedidos aprovados na Expedição, sem preços nem valores. Não altera pedidos nem cadastros.',
+  FINANCEIRO: 'Financeiro: consulta e liquida títulos a receber e a pagar e ajusta vencimento e observação de títulos em aberto; consulta pedidos e clientes. Não altera pedidos, cadastros nem estoque, e não fatura.',
+  CONSULTA: 'Somente leitura: por padrão, clientes, produtos e estoque, sem custos nem dados de crédito. O administrador pode liberar a leitura de pedidos, financeiro e relatórios. Nunca altera dados.',
+  SEM_ACESSO: 'Conta sem módulos liberados: só a página Início, os dados pessoais e sair. Perfil das contas novas até um administrador liberar o acesso.',
 };
 
 // Nome legível de cada permissão (para mostrar "o que este perfil pode fazer").
 const ROTULO_PERMISSOES = {
-  'dashboard.ler': 'Ver dashboard', 'clientes.ler': 'Ver clientes', 'clientes.gravar': 'Incluir/alterar clientes',
-  'clientes.inativar': 'Inativar clientes', 'produtos.ler': 'Ver produtos', 'produtos.gravar': 'Incluir/alterar produtos',
-  'pedidos.ler': 'Ver pedidos', 'pedidos.gravar': 'Criar/alterar/cancelar pedidos', 'pedidos.aprovar': 'Aprovar/rejeitar pedidos',
-  'pedidos.faturar': 'Faturar pedidos', 'estoque.ler': 'Ver estoque', 'estoque.movimentar': 'Movimentar estoque',
-  'financeiro.ler': 'Ver financeiro', 'financeiro.liquidar': 'Liquidar títulos', 'relatorios.ler': 'Relatórios',
+  'painel_executivo.ler': 'Painel executivo (resultados estratégicos)', 'clientes.ler': 'Ver clientes', 'clientes.gravar': 'Incluir/alterar clientes',
+  'clientes.inativar': 'Inativar clientes', 'clientes.carteira': 'Definir carteira e limite de crédito dos clientes',
+  'clientes.credito': 'Ver limite e crédito dos clientes', 'produtos.ler': 'Ver produtos', 'produtos.gravar': 'Incluir/alterar produtos',
+  'produtos.custo': 'Ver custo dos produtos', 'pedidos.ler': 'Ver pedidos', 'pedidos.gravar': 'Criar/alterar pedidos em rascunho',
+  'pedidos.aprovar': 'Aprovar/rejeitar pedidos', 'pedidos.faturar': 'Faturar pedidos', 'pedidos.expedicao': 'Expedição de pedidos aprovados',
+  'estoque.ler': 'Ver estoque', 'estoque.movimentar': 'Movimentar estoque',
+  'financeiro.ler': 'Ver financeiro', 'financeiro.liquidar': 'Liquidar títulos', 'financeiro.editar': 'Ajustar vencimento e observação de títulos',
+  'relatorios.ler': 'Relatórios (conforme os dados liberados)',
   'parametros.ler': 'Ver parâmetros', 'parametros.gravar': 'Alterar parâmetros', 'auditoria.ler': 'Ver auditoria',
   'usuarios.gerir': 'Gerenciar usuários e perfis', 'admin.painel': 'Painel administrativo',
 };
+const rotulo = (k) => ROTULO_PERMISSOES[k] || k;
 
+// Catálogo para a tela "Usuários e perfis": acessos padrão de cada perfil e os adicionais que o ADMIN pode liberar.
+// A contagem de "acessos" é sempre o número de permissões (funcionalidades), nunca de registros.
 function catalogoPerfis() {
   return PERFIS.map((p) => ({
     perfil: p, descricao: DESCRICAO_PERFIS[p],
-    acessos: permissoesDoPerfil(p).map((k) => ROTULO_PERMISSOES[k] || k),
+    acessos: permissoesDoPerfil(p).map(rotulo),
+    adicionais: adicionaisPermitidos(p).map((k) => ({ permissao: k, rotulo: rotulo(k) })),
   }));
 }
 
@@ -218,16 +256,38 @@ function alterarUsuario(db, admin, id, dados) {
   const r = db.prepare('UPDATE usuarios SET perfil = ?, ativo = ?, perfil_base = ? WHERE id = ? AND perfil = ? AND ativo = ?')
     .run(perfil, ativo ? 1 : 0, perfilBase, u.id, u.perfil, u.ativo);
   if (r.changes !== 1) throw erro.conflito('O usuário foi alterado por outra operação. Recarregue e tente novamente.');
+  // Novo perfil: adicionais que ele não admite deixam de existir (não "voltam" se o perfil antigo retornar).
+  if (perfil !== u.perfil) {
+    const permitidos = adicionaisPermitidos(perfil);
+    for (const p of adicionaisDoUsuario(db, u.id)) {
+      if (!permitidos.includes(p)) db.prepare('DELETE FROM usuario_permissoes WHERE usuario_id = ? AND permissao = ?').run(u.id, p);
+    }
+  }
   // Mudança de perfil/ativação vale na hora: derruba as sessões abertas do usuário.
   if (perfil !== u.perfil || ativo !== !!u.ativo) db.prepare('DELETE FROM sessoes WHERE usuario_id = ?').run(u.id);
   return { antes: { perfil: u.perfil, ativo: !!u.ativo }, depois: { perfil, ativo }, login: u.login, nome: u.nome };
 }
 
-function publico(u) {
-  return { id: u.id, login: u.login, nome: u.nome, perfil: u.perfil, permissoes: permissoesDoPerfil(u.perfil) };
+// Troca o conjunto de acessos adicionais de um usuário (só os que o perfil dele admite; o resto é recusado).
+// Derruba as sessões abertas, para o novo conjunto valer na hora também na tela.
+function definirAdicionais(db, usuarioId, perfil, lista, responsavel, agoraIso) {
+  const permitidos = adicionaisPermitidos(perfil);
+  const invalidos = lista.filter((p) => !permitidos.includes(p));
+  if (invalidos.length) throw erro.validacao('Acesso adicional não permitido para este perfil.', { adicionais: 'Escolha só acessos da lista deste perfil.' });
+  db.prepare('DELETE FROM usuario_permissoes WHERE usuario_id = ?').run(usuarioId);
+  const ins = db.prepare('INSERT INTO usuario_permissoes (usuario_id, permissao, concedido_por, concedido_em) VALUES (?, ?, ?, ?)');
+  for (const p of [...new Set(lista)]) ins.run(usuarioId, p, responsavel, agoraIso);
+  db.prepare('DELETE FROM sessoes WHERE usuario_id = ?').run(usuarioId);
+}
+
+function publico(u, adicionais = []) {
+  const permissoes = permissoesEfetivas(u.perfil, adicionais);
+  return { id: u.id, login: u.login, nome: u.nome, perfil: u.perfil, permissoes,
+    adicionais: adicionais.filter((p) => permissoes.includes(p) && !permissoesDoPerfil(u.perfil).includes(p)) };
 }
 
 module.exports = {
   hashSenha, conferirSenha, criarAutenticador, exigir, PERMISSOES, SESSAO_MS, PERFIS,
-  validarSenha, listarUsuarios, alterarUsuario, catalogoPerfis,
+  validarSenha, listarUsuarios, alterarUsuario, catalogoPerfis, definirAdicionais, adicionaisDoUsuario,
+  adicionaisPermitidos, permissoesEfetivas, rotulo,
 };

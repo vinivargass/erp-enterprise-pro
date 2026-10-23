@@ -1,5 +1,5 @@
 import { get, post, put, del } from '../api.js';
-import { h, cabecalho, tabelaRemota, formulario, modal, confirmar, toast, toastErro, moeda, numero, selo, atrasar } from '../ui.js';
+import { h, cabecalho, tabelaRemota, formulario, modal, confirmar, toast, toastErro, moeda, numero, selo, atrasar, acoesLinha, carregando, falha } from '../ui.js';
 
 const TIPOS = [['PA', 'PA - Produto acabado'], ['ME', 'ME - Mercadoria'], ['MP', 'MP - Matéria-prima'], ['MC', 'MC - Material de consumo'], ['SV', 'SV - Serviço']];
 const UNIDADES = ['UN', 'PC', 'CX', 'KG', 'M', 'M2', 'L', 'MT', 'RL', 'HR'];
@@ -19,16 +19,36 @@ export async function render(ctx) {
       { chave: 'grupo', titulo: 'Grupo', ordenavel: true },
       { chave: 'tipo', titulo: 'Tipo / UM', render: (p) => `${p.tipo} / ${p.unidade}` },
       { chave: 'preco_venda', titulo: 'Preço de venda', ordenavel: true, num: true, render: (p) => moeda(p.preco_venda) },
-      { chave: 'custo', titulo: 'Custo', num: true, render: (p) => moeda(p.custo) },
+      ctx.pode('produtos.custo') ? { chave: 'custo', titulo: 'Custo', num: true, render: (p) => moeda(p.custo) } : null, // custo: só gerência e diretoria
       { chave: 'saldo', titulo: 'Saldo', ordenavel: true, num: true, render: (p) => numero(p.saldo) },
       { chave: 'disponivel', titulo: 'Disponível', num: true, render: (p) => (p.abaixo_minimo ? selo(`${numero(p.disponivel)} · mín. ${numero(p.estoque_minimo)}`, 'erro') : numero(p.disponivel)) },
       { chave: 'ativo', titulo: 'Status', render: (p) => (p.ativo ? selo('Ativo', 'ok') : selo('Inativo', 'neutro')) },
-      { chave: 'acoes', titulo: 'Ações', render: (p) => h('div', { class: 'acoes-linha' },
-        podeGravar ? h('button', { class: 'btn btn-pequeno', onclick: () => abrirForm(p.id) }, 'Editar') : null,
-        h('a', { class: 'btn btn-pequeno', href: `#/estoque?produto=${p.id}` }, 'Kardex'),
-        podeGravar ? h('button', { class: 'btn btn-pequeno btn-perigo', onclick: () => excluir(p) }, 'Excluir') : null) },
-    ],
+      // Quem grava edita; quem só lê consulta. Movimentações e exclusão ficam em "Mais ações".
+      { chave: 'acoes', titulo: 'Ações', render: (p) => acoesLinha(
+        podeGravar ? h('button', { class: 'btn btn-pequeno', onclick: () => abrirForm(p.id) }, 'Editar')
+          : h('button', { class: 'btn btn-pequeno', onclick: () => consultar(p.id) }, 'Consultar'), [
+          ctx.pode('estoque.ler') ? { rotulo: 'Histórico de movimentações', href: `#/estoque?produto=${p.id}` } : null,
+          podeGravar ? { rotulo: 'Excluir', perigo: true, acao: () => excluir(p) } : null,
+        ]) },
+    ].filter(Boolean),
   });
+
+  // Ficha somente leitura (o servidor já omite o custo para quem não pode vê-lo).
+  async function consultar(id) {
+    const corpo = h('div', {}, carregando());
+    modal({ titulo: 'Consulta de produto', corpo });
+    try {
+      const p = await get(`/api/produtos/${id}`);
+      const linha = (r, v, col = 'c3') => h('div', { class: `campo ${col}` }, h('label', {}, r), h('div', {}, v === '' || v == null ? '—' : v));
+      corpo.replaceChildren(h('div', { class: 'form-grade' },
+        linha('Código', p.codigo), linha('Status', p.ativo ? selo('Ativo', 'ok') : selo('Inativo', 'neutro')),
+        linha('Grupo', p.grupo), linha('Tipo / UM', `${p.tipo} / ${p.unidade}`),
+        linha('Descrição', p.descricao, 'c12'),
+        linha('Preço de venda', moeda(p.preco_venda)), 'custo' in p ? linha('Custo', moeda(p.custo)) : null,
+        linha('Saldo', numero(p.saldo)), linha('Disponível', numero(p.disponivel)), linha('Estoque mínimo', numero(p.estoque_minimo)),
+        p.ncm ? linha('NCM', p.ncm) : null));
+    } catch (e) { corpo.replaceChildren(falha(e)); }
+  }
 
   async function excluir(p) {
     const ok = await confirmar({ titulo: 'Excluir produto', mensagem: `Excluir definitivamente ${p.codigo} - ${p.descricao}? Só é permitido para produtos sem movimentações ou pedidos; caso contrário, inative o cadastro.`, botao: 'Excluir', perigo: true });
@@ -90,7 +110,7 @@ export async function render(ctx) {
     opcoes.map(([v, tx]) => h('option', { value: v, selected: estado[chave] === v }, tx))));
   t.atualizar();
   return h('div', {},
-    cabecalho('Produtos', 'Equivalente Protheus: SB1 (MATA010) com saldos em SB2 — ZERPPROD.PRW',
+    cabecalho('Produtos', 'Consulte e organize os produtos da empresa, com preços, grupos e estoque mínimo.',
       podeGravar ? h('button', { class: 'btn btn-primario', onclick: () => abrirForm() }, '+ Novo produto') : null),
     h('div', { class: 'filtros', role: 'search' },
       h('label', {}, 'Pesquisa', busca),

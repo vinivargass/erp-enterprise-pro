@@ -28,7 +28,7 @@ export async function renderLista(ctx) {
   const dataInput = (chave, rot) => h('label', {}, rot, h('input', { type: 'date', onchange: (ev) => { estado[chave] = ev.target.value; recarregar(); } }));
   t.atualizar();
   return h('div', {},
-    cabecalho('Pedidos de venda', 'Equivalente Protheus: SC5/SC6 via MATA410 + aprovação em ZA4 (ZERPPED.PRW)',
+    cabecalho('Pedidos de venda', 'Acompanhe os pedidos, da criação ao faturamento.',
       ctx.pode('pedidos.gravar') ? h('a', { class: 'btn btn-primario', href: '#/pedidos/novo' }, '+ Novo pedido') : null),
     h('div', { class: 'abas', role: 'navigation', 'aria-label': 'Filtrar por status' },
       [['', 'Todos'], ...STATUS.map((st) => [st, rotuloStatus(st)])].map(([st, rot]) =>
@@ -66,6 +66,8 @@ export async function renderEdicao(ctx) {
     if (!selCliente.value) return;
     try {
       const c = await get(`/api/clientes/${selCliente.value}`);
+      // sem 'clientes.credito' o servidor não envia o limite: não mostra nada
+      if (c.limite_credito === undefined) { delete infoCredito.dataset.disp; calcular(); return; }
       infoCredito.textContent = `Limite ${moeda(c.limite_credito)} · comprometido ${moeda(c.credito_utilizado)} · disponível ${moeda(c.credito_disponivel)}`;
       infoCredito.dataset.disp = c.credito_disponivel;
       calcular();
@@ -210,11 +212,12 @@ export async function renderDetalhe(ctx) {
   if (p.status === 'APROVADO' && pode('pedidos.faturar')) {
     botoes.push(h('button', { class: 'btn btn-primario', onclick: () => acao('faturar', {
       titulo: 'Faturamento demonstrativo',
-      mensagem: 'Será baixado o estoque reservado e gerados os títulos a receber. ATENÇÃO: não é emitida NF-e nem calculado imposto — no Protheus o faturamento fiscal depende de TES, regras fiscais e configuração apropriadas.',
+      mensagem: 'Será baixado o estoque reservado e gerados os títulos a receber. Atenção: faturamento demonstrativo — não emite nota fiscal nem calcula impostos.',
       botao: 'Faturar', idempotente: true, sucesso: (r) => `Pedido ${r.numero} faturado; ${r.titulos.length} título(s) gerado(s).`,
     }) }, 'Faturar (demonstrativo)'));
   }
-  if (['RASCUNHO', 'PENDENTE_APROVACAO', 'APROVADO', 'REJEITADO'].includes(p.status) && pode('pedidos.gravar')) {
+  // Rascunho/devolvido: quem emite cancela. Pendente/aprovado: só quem aprova (o servidor confere).
+  if ((['RASCUNHO', 'REJEITADO'].includes(p.status) && pode('pedidos.gravar')) || (['PENDENTE_APROVACAO', 'APROVADO'].includes(p.status) && pode('pedidos.aprovar'))) {
     botoes.push(h('button', { class: 'btn btn-perigo', onclick: () => acao('cancelar', {
       titulo: 'Cancelar pedido', mensagem: `Cancelar o pedido ${p.numero}? ${p.status === 'APROVADO' ? 'A reserva de estoque será liberada. ' : ''}Esta operação não pode ser desfeita e o pedido não poderá ser faturado.`,
       botao: 'Cancelar pedido', perigo: true, motivo: 'motivo', sucesso: (r) => `Pedido ${r.numero} cancelado.`,
@@ -248,11 +251,11 @@ export async function renderDetalhe(ctx) {
           h('div', {}, h('span', {}, 'Total do pedido'), h('strong', {}, moeda(p.total_liquido)))),
         p.observacao ? h('p', { class: 'muted' }, 'Observação: ', p.observacao) : null),
       h('div', {},
-        h('section', { class: 'cartao' }, h('h2', {}, 'Cliente e crédito'),
+        h('section', { class: 'cartao' }, h('h2', {}, p.credito ? 'Cliente e crédito' : 'Cliente'),
           h('p', { style: 'margin:0' }, h('strong', {}, `${p.cliente.codigo} - ${p.cliente.razao_social}`)),
           h('p', { class: 'muted', style: 'margin:2px 0 10px' }, documento(p.cliente.documento), ` · condição ${p.cond_pagto}`),
-          h('div', {}, `Limite: ${moeda(p.credito.limite)}`), h('div', {}, `Comprometido (exceto este pedido): ${moeda(p.credito.utilizado)}`),
-          h('div', {}, 'Disponível: ', h('strong', { style: p.credito.disponivel < p.total_liquido ? 'color:var(--erro)' : '' }, moeda(p.credito.disponivel)))),
+          p.credito ? h('div', {}, `Limite: ${moeda(p.credito.limite)}`) : null, p.credito ? h('div', {}, `Comprometido (exceto este pedido): ${moeda(p.credito.utilizado)}`) : null,
+          p.credito ? h('div', {}, 'Disponível: ', h('strong', { style: p.credito.disponivel < p.total_liquido ? 'color:var(--erro)' : '' }, moeda(p.credito.disponivel))) : null),
         h('section', { class: 'cartao' }, h('h2', {}, 'Histórico do pedido'),
           h('ul', { class: 'linha-tempo' }, p.historico.map((x) => h('li', {},
             h('div', {}, h('strong', {}, x.de_status ? `${rotuloStatus(x.de_status)} → ${rotuloStatus(x.para_status)}` : rotuloStatus(x.para_status))),

@@ -8,8 +8,15 @@ const base = require('./base');
 
 const dataOk = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
 
+// Vendedor só enxerga nos relatórios os próprios pedidos (mesma regra da tela de pedidos).
+function escopoVendedor(ctx, f, a) {
+  if (ctx.usuario.perfil === 'VENDEDOR') { f.push('p.vendedor = ?'); a.push(ctx.usuario.login); }
+}
+
+// Cada relatório exige a permissão de leitura dos dados que mostra, além de 'relatorios.ler'.
 const RELATORIOS = {
   vendas: {
+    perm: 'pedidos.ler',
     titulo: 'Vendas por período (faturadas)',
     filtros: ['de', 'ate', 'cliente_id', 'produto_id'],
     colunas: [
@@ -20,6 +27,7 @@ const RELATORIOS = {
     ],
     executar(ctx, q) {
       const f = ["p.status = 'FATURADO'"]; const a = [];
+      escopoVendedor(ctx, f, a);
       if (dataOk(q.de)) { f.push('p.faturado_em >= ?'); a.push(q.de); }
       if (dataOk(q.ate)) { f.push('p.faturado_em <= ?'); a.push(q.ate); }
       if (q.cliente_id) { f.push('p.cliente_id = ?'); a.push(Number(q.cliente_id)); }
@@ -32,6 +40,7 @@ const RELATORIOS = {
     },
   },
   pedidos_status: {
+    perm: 'pedidos.ler',
     titulo: 'Pedidos por status',
     filtros: ['de', 'ate', 'cliente_id', 'status'],
     colunas: [
@@ -41,6 +50,7 @@ const RELATORIOS = {
     ],
     executar(ctx, q) {
       const f = []; const a = [];
+      escopoVendedor(ctx, f, a);
       if (dataOk(q.de)) { f.push('p.emissao >= ?'); a.push(q.de); }
       if (dataOk(q.ate)) { f.push('p.emissao <= ?'); a.push(q.ate); }
       if (q.cliente_id) { f.push('p.cliente_id = ?'); a.push(Number(q.cliente_id)); }
@@ -51,6 +61,7 @@ const RELATORIOS = {
     },
   },
   estoque_baixo: {
+    perm: 'estoque.ler',
     titulo: 'Produtos com estoque abaixo do mínimo',
     filtros: ['produto_id'],
     colunas: [
@@ -68,6 +79,7 @@ const RELATORIOS = {
     },
   },
   movimentacoes: {
+    perm: 'estoque.ler',
     titulo: 'Movimentações de estoque',
     filtros: ['de', 'ate', 'produto_id', 'tipo'],
     colunas: [
@@ -90,6 +102,7 @@ const RELATORIOS = {
     },
   },
   receber_vencidas: {
+    perm: 'financeiro.ler',
     titulo: 'Contas a receber vencidas',
     filtros: ['cliente_id', 'de', 'ate'],
     colunas: [
@@ -111,6 +124,7 @@ const RELATORIOS = {
     },
   },
   pagar_vencimento: {
+    perm: 'financeiro.ler',
     titulo: 'Contas a pagar por vencimento',
     filtros: ['de', 'ate', 'situacao'],
     colunas: [
@@ -131,13 +145,17 @@ const RELATORIOS = {
   },
 };
 
-function catalogo() {
-  return Object.entries(RELATORIOS).map(([id, r]) => ({ id, titulo: r.titulo, filtros: r.filtros, colunas: r.colunas }));
+// Só lista os relatórios cujos dados o usuário pode ler.
+function catalogo(ctx) {
+  return Object.entries(RELATORIOS).filter(([, r]) => base.pode(ctx, r.perm))
+    .map(([id, r]) => ({ id, titulo: r.titulo, filtros: r.filtros, colunas: r.colunas }));
 }
 
 function executar(ctx, id, query = {}) {
   const r = RELATORIOS[id];
   if (!r) throw erro.naoEncontrado('Relatório inexistente.');
+  // A checagem vale para a tela e para o CSV (ambos passam por aqui).
+  if (!base.pode(ctx, r.perm)) throw erro.proibido('Sem permissão para os dados deste relatório.');
   if (dataOk(query.de) && dataOk(query.ate) && query.de > query.ate) throw erro.validacao('Data inicial maior que a final.', { de: 'Maior que a data final.' });
   const linhas = r.executar(ctx, query).map((l) => Object.fromEntries(r.colunas.map((c) => [c.chave, l[c.chave]])));
   return { id, titulo: r.titulo, colunas: r.colunas, linhas, gerado_em: base.agoraIso(ctx), filtros: query };

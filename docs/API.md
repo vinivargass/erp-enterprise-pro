@@ -37,13 +37,13 @@ Base: `http://localhost:3000/api`. Todas as respostas são JSON (`application/js
 | Método | Rota | Permissão | Descrição |
 |---|---|---|---|
 | POST | `/auth/login` | pública | `{login, senha, lembrar?}` → `{usuario, csrf}`. Login sem diferenciar maiúsculas. `lembrar: true` = cookie de 30 dias; senão cookie de sessão (8 h no servidor) |
-| POST | `/auth/registrar` | pública | autocadastro `{nome, login, senha, confirmacao}` → 201 `{usuario, csrf}` já autenticado; perfil **sempre CONSULTA**; 409 login em uso; 422 senha fraca; 429 após 5 cadastros/10 min do mesmo IP |
+| POST | `/auth/registrar` | pública | autocadastro `{nome, login, senha, confirmacao}` → 201 `{usuario, csrf}` já autenticado; perfil **sempre SEM_ACESSO** (nenhum módulo); 409 login em uso; 422 senha fraca; 429 após 5 cadastros/10 min do mesmo IP |
 | POST | `/auth/logout` | autenticado | encerra a sessão |
 | GET | `/admin/painel?de=&ate=&grupo=&vendedor=` | admin.painel (ADMIN) | indicadores, evolução mensal, faturamento por grupo, status, top clientes (registra o acesso) |
 | GET | `/admin/vendas?...filtros&q=&ordem=&direcao=&pagina=&tamanho=` | admin.painel (ADMIN) | vendas faturadas por item, paginadas |
 | GET | `/admin/usuarios?q=&perfil=todos|admin|comum&status=&pagina=` | usuarios.gerir (ADMIN) | pesquisa sem diferenciar maiúsculas/acentos; nunca devolve senha/tokens |
 | POST | `/admin/usuarios/:id/conceder-admin` · `/remover-admin` | usuarios.gerir (ADMIN) | sem corpo; o servidor decide o perfil; protege o próprio acesso e o último admin; encerra as sessões do afetado |
-| POST | `/admin/usuarios/:id/perfil` | usuarios.gerir (ADMIN) | `{perfil}`: troca para qualquer perfil da lista oficial (ADMIN, GERENTE, VENDEDOR, ESTOQUE, FINANCEIRO, CONSULTA); mesmas proteções e auditoria |
+| POST | `/admin/usuarios/:id/perfil` | usuarios.gerir (ADMIN) | `{perfil}`: troca para qualquer perfil da lista oficial (ADMIN, DIRETORIA, GERENTE, VENDEDOR, ESTOQUE, FINANCEIRO, CONSULTA, SEM_ACESSO); mesmas proteções e auditoria |
 | POST | `/admin/usuarios/:id/ativo` | usuarios.gerir (ADMIN) | `{ativo}`: desativa/reativa a conta (perfil e dados mantidos; sessões encerradas; não vale para si mesmo nem para o último admin) |
 | DELETE | `/admin/usuarios/:id` | usuarios.gerir (ADMIN) | `{confirmacao: "<login>"}`: exclusão definitiva. Conta ativa: só se for comum e sem histórico. Conta **desativada**: pode ser excluída mesmo com histórico; o histórico é mantido e o login vai para `logins_reservados` (não pode ser recriado). Nunca a própria conta. `GET /admin/usuarios?exclusao=1` informa se cada conta pode ser excluída e por quê |
 | GET | `/admin/perfis` | usuarios.gerir (ADMIN) | perfis com descrição e a lista de acessos que cada um libera (derivada da matriz de permissões) |
@@ -52,7 +52,8 @@ Base: `http://localhost:3000/api`. Todas as respostas são JSON (`application/js
 | PUT | `/usuarios/:id` | usuarios.gerir (ADMIN) | `{perfil?, ativo?}`; derruba as sessões do usuário; o admin não pode rebaixar/desativar a si mesmo |
 | GET | `/auth/sessao` | autenticado | usuário atual, permissões e `csrf` (para retomar uma sessão lembrada) |
 | GET | `/saude` | pública | estado do serviço |
-| GET | `/dashboard?de=&ate=` | dashboard.ler | indicadores, evolução mensal, status, atividades, alertas |
+| GET | `/inicio` | autenticado | pendências do próprio usuário, filtradas pelas permissões dele (sem valores monetários) |
+| GET | `/painel-executivo?de=&ate=` | painel_executivo.ler (ADMIN, DIRETORIA) | resultados estratégicos: indicadores, evolução mensal, categorias, alertas; atividades só com auditoria.ler. Demais perfis: 403 (auditado) |
 | GET | `/notificacoes` | autenticado | alertas operacionais |
 | GET | `/condicoes-pagamento` | autenticado | lista |
 | GET | `/clientes?q=&campo=todos|codigo|nome|documento&status=ativo|inativo&uf=` | clientes.ler | lista paginada |

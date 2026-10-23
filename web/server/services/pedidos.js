@@ -79,7 +79,8 @@ function validarCabecalho(ctx, dados) {
     .texto('observacao', { max: 250 })
     .resultado();
   const cli = ctx.db.prepare('SELECT * FROM clientes WHERE id = ?').get(d.cliente_id);
-  if (!cli) throw erro.validacao('Cliente inexistente.', { cliente_id: 'Cliente inexistente.' });
+  // Vendedor: só clientes da própria carteira (ou de pedidos dele). O dono do pedido vem da sessão, nunca do corpo.
+  if (!cli || !clientes.visivel(ctx, cli)) throw erro.validacao('Cliente inexistente.', { cliente_id: 'Cliente inexistente.' });
   if (!cli.ativo) throw erro.validacao('Cliente inativo não pode receber pedidos.', { cliente_id: 'Cliente inativo.' });
   d.cond_pagto = d.cond_pagto || cli.cond_pagto;
   if (!ctx.db.prepare('SELECT 1 FROM condicoes_pagamento WHERE codigo = ?').get(d.cond_pagto)) {
@@ -139,10 +140,13 @@ function obter(ctx, id) {
   return {
     ...paraApi(p),
     cliente: { id: cli.id, codigo: cli.codigo, razao_social: cli.razao_social, documento: cli.documento },
-    credito: { limite: reais(cli.limite_credito_cent), utilizado: reais(usado), disponivel: reais(cli.limite_credito_cent - usado) },
+    // Limite e crédito do cliente só para quem tem 'clientes.credito'.
+    credito: base.pode(ctx, 'clientes.credito')
+      ? { limite: reais(cli.limite_credito_cent), utilizado: reais(usado), disponivel: reais(cli.limite_credito_cent - usado) } : null,
     itens: itensDoPedido(ctx, p.id),
     historico: ctx.db.prepare('SELECT de_status, para_status, usuario, data_hora, observacao FROM pedido_historico WHERE pedido_id = ? ORDER BY id').all(p.id),
-    titulos: ctx.db.prepare('SELECT id, numero, parcela, vencimento, valor_cent, saldo_cent, situacao FROM titulos WHERE pedido_id = ? ORDER BY parcela').all(p.id)
+    // Títulos do pedido: consulta financeira de quem aprova (gerente) ou de quem tem o financeiro. Vendedor não vê.
+    titulos: !(base.pode(ctx, 'financeiro.ler') || base.pode(ctx, 'pedidos.aprovar')) ? [] : ctx.db.prepare('SELECT id, numero, parcela, vencimento, valor_cent, saldo_cent, situacao FROM titulos WHERE pedido_id = ? ORDER BY parcela').all(p.id)
       .map(({ valor_cent, saldo_cent, ...t }) => ({ ...t, valor: reais(valor_cent), saldo: reais(saldo_cent) })),
   };
 }
@@ -301,6 +305,10 @@ function cancelar(ctx, id, versao, motivo) {
   return transacao(ctx.db, () => {
     const ped = obterLinha(ctx, id);
     base.exigirVersao(versao, ped.versao);
+    // Depois que sai do rascunho (pendente ou aprovado), cancelar é decisão de quem aprova, não de quem emitiu.
+    if (['PENDENTE_APROVACAO', 'APROVADO'].includes(ped.status) && !base.pode(ctx, 'pedidos.aprovar')) {
+      throw erro.proibido('Este pedido já saiu do rascunho; o cancelamento cabe a quem aprova pedidos.');
+    }
     if (!CANCELAVEIS.includes(ped.status)) {
       throw erro.regra(ped.status === 'FATURADO'
         ? 'Pedido faturado não pode ser cancelado; o estorno exige devolução/cancelamento fiscal da nota.'
@@ -360,4 +368,34 @@ function faturar(ctx, id, versao) {
   });
 }
 
-module.exports = { STATUS, listar, obter, criar, alterar, enviar, aprovar, rejeitar, cancelar, faturar, parcelas };
+
+// Expedição (perfil ESTOQUE): pedidos aprovados/faturados para separar e entregar.
+// Só o necessário para separar: cliente, endereço, itens e quantidades — sem preços, totais, custos nem crédito.
+const STATUS_EXPEDICAO = ['APROVADO', 'FATURADO'];
+
+function expedicao(ctx, query = {}) {
+  const f = ["p.status IN ('APROVADO','FATURADO')"];
+  const a = [];
+  if (STATUS_EXPEDICAO.includes(query.status)) { f.push('p.status = ?'); a.push(query.status); }
+  if (query.q) { f.push("(p.numero LIKE ? ESCAPE '\' OR c.razao_social LIKE ? ESCAPE '\')"); a.push(base.like(query.q), base.like(query.q)); }
+  const where = 'WHERE ' + f.join(' AND ');
+  const pag = base.paginar(ctx, query);
+  const total = ctx.db.prepare(`SELECT COUNT(*) n FROM pedidos p JOIN clientes c ON c.id = p.cliente_id ${where}`).get(...a).n;
+  const itens = ctx.db.prepare(`SELECT p.id, p.numero, p.status, p.emissao, c.razao_social cliente_nome, c.municipio, c.uf,
+        (SELECT COUNT(*) FROM pedido_itens i WHERE i.pedido_id = p.id) qtd_itens
+      FROM pedidos p JOIN clientes c ON c.id = p.cliente_id ${where} ORDER BY p.status, p.numero LIMIT ? OFFSET ?`)
+    .all(...a, pag.tamanho, pag.offset);
+  return { itens, total, pagina: pag.pagina, tamanho: pag.tamanho };
+}
+
+function expedicaoDetalhe(ctx, id) {
+  const p = ctx.db.prepare('SELECT id, numero, status, emissao, observacao, cliente_id FROM pedidos WHERE id = ?').get(Number(id));
+  if (!p || !STATUS_EXPEDICAO.includes(p.status)) throw erro.naoEncontrado('Pedido não encontrado na expedição.');
+  const c = ctx.db.prepare(`SELECT codigo, razao_social, nome_fantasia, cep, logradouro, numero, complemento, bairro,
+      municipio, uf, telefone FROM clientes WHERE id = ?`).get(p.cliente_id);
+  const itens = ctx.db.prepare(`SELECT i.item, p.codigo produto_codigo, p.descricao produto_descricao, p.unidade, i.quantidade
+      FROM pedido_itens i JOIN produtos p ON p.id = i.produto_id WHERE i.pedido_id = ? ORDER BY i.item`).all(p.id);
+  const { cliente_id, ...cab } = p;
+  return { ...cab, cliente: c, itens };
+}
+module.exports = { STATUS, listar, obter, criar, alterar, enviar, aprovar, rejeitar, cancelar, faturar, parcelas, expedicao, expedicaoDetalhe };

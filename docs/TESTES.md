@@ -62,7 +62,7 @@ Procedimentos e resultados esperados em [protheus/docs/TESTES_PROTHEUS.md](../pr
 ### Acréscimo — autocadastro de usuário (executado, 33/33)
 | Teste | Resultado |
 |---|---|
-| Cria conta CONSULTA já autenticada; perfil enviado pelo cliente (`ADMIN`) é ignorado; a conta não consegue gravar (403) | ✔ |
+| Cria conta SEM_ACESSO (sem módulos) já autenticada; perfil enviado pelo cliente (`ADMIN`) é ignorado; a conta não consegue gravar (403) | ✔ |
 | Recusa login duplicado (409), senha curta/sem números/contendo o login, confirmação diferente e dados inválidos (422) | ✔ |
 | Admin promove usuário; perfil inválido 422; admin não rebaixa/desativa a si mesmo; gerente não gerencia usuários (403) | ✔ |
 

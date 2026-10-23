@@ -1,5 +1,6 @@
 // Componentes de interface reutilizáveis. Todo texto vindo de dados é inserido como textContent
 // (nunca innerHTML), o que impede XSS a partir de cadastros maliciosos.
+import { idioma, ingles } from './idioma.js';
 
 export function h(tag, attrs = {}, ...filhos) {
   const el = document.createElement(tag);
@@ -29,15 +30,20 @@ export function s(tag, attrs = {}, ...filhos) {
   return el;
 }
 
-// ---------- Formatação pt-BR ----------
-const fMoeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-const fMoedaCurta = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
-const fNum = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 4 });
+// ---------- Formatação conforme o idioma (pt-BR: 1.234,56 e 21/10/2026; en-US: 1,234.56 e 10/21/2026) ----------
+// A moeda continua sendo o real (R$) nos dois idiomas: os valores do sistema são em reais.
+const fMoeda = new Intl.NumberFormat(idioma, { style: 'currency', currency: 'BRL' });
+const fMoedaCurta = new Intl.NumberFormat(idioma, { notation: 'compact', maximumFractionDigits: 1 });
+const fNum = new Intl.NumberFormat(idioma, { maximumFractionDigits: 4 });
 export const moeda = (v) => (v == null ? '' : fMoeda.format(v));
 export const moedaCurta = (v) => 'R$ ' + fMoedaCurta.format(v);
 export const numero = (v) => (v == null ? '' : fNum.format(v));
-export const data = (iso) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '');
-export const dataHora = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '');
+export function data(iso) {
+  if (!iso) return '';
+  const [a, m, d] = iso.slice(0, 10).split('-');
+  return ingles ? `${m}/${d}/${a}` : `${d}/${m}/${a}`;
+}
+export const dataHora = (iso) => (iso ? new Date(iso).toLocaleString(idioma, { dateStyle: 'short', timeStyle: 'short' }) : '');
 export const hojeIso = () => new Date().toLocaleDateString('sv-SE');
 export function documento(doc) {
   const d = String(doc || '').replace(/\D/g, '');
@@ -242,6 +248,108 @@ export function tabela(colunas, linhas, rotuloVazio) {
     h('tbody', {}, linhas.map((l) => h('tr', {}, colunas.map((c) => h('td', { class: `${c.num ? 'num' : ''} ${c.quebra ? 'quebra' : ''}` }, c.render ? c.render(l) : l[c.chave])))))));
 }
 
+// ---------- Ações de linha de tabela ----------
+// Uma ação principal visível + menu "Mais ações" (três pontos) com as secundárias.
+// principal: elemento já pronto (botão/link) ou null. itens: [{ rotulo, acao, href, perigo, sensivel }] — itens
+// nulos são ignorados, então cada página só passa as ações autorizadas e válidas para o estado do registro.
+// As sensíveis/destrutivas (sensivel ou perigo) ficam num grupo separado no fim; só as de perigo ficam vermelhas.
+// O menu é posto no <body> com posição fixa: não é cortado pela rolagem da tabela nem sai da tela.
+let menuAberto = null; // só um menu de ações aberto por vez
+
+function fecharMenuAcoes({ devolverFoco = false } = {}) {
+  if (!menuAberto) return;
+  const { lista, botao, limpar } = menuAberto;
+  menuAberto = null;
+  limpar();
+  lista.remove();
+  botao.setAttribute('aria-expanded', 'false');
+  if (devolverFoco) botao.focus();
+}
+
+export function acoesLinha(principal, itens = []) {
+  const validos = itens.filter(Boolean);
+  const comuns = validos.filter((i) => !i.perigo && !i.sensivel);
+  const sensiveis = validos.filter((i) => i.perigo || i.sensivel);
+  if (!comuns.length && !sensiveis.length) return h('div', { class: 'acoes-linha' }, principal);
+
+  const idMenu = 'acoes-' + Math.random().toString(36).slice(2);
+  const botao = h('button', {
+    type: 'button', class: 'btn btn-pequeno btn-mais', 'aria-label': 'Mais ações', title: 'Mais ações',
+    'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-controls': idMenu,
+    onclick: (ev) => { ev.stopPropagation(); alternar(); },
+    onkeydown: (ev) => { if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); abrir(ev.key === 'ArrowUp' ? 'ultimo' : 'primeiro'); } },
+  }, s('svg', { viewBox: '0 0 24 24', width: 16, height: 16, 'aria-hidden': 'true' },
+    ...[5, 12, 19].map((cx) => s('circle', { cx, cy: 12, r: 1.7, fill: 'currentColor' }))));
+
+  function itemEl(i) {
+    const escolher = (ev) => {
+      ev.stopPropagation();
+      fecharMenuAcoes({ devolverFoco: true }); // a janela de confirmação, se houver, devolve o foco a este botão
+      if (i.href) { location.hash = i.href; return; }
+      i.acao?.();
+    };
+    return h('button', { type: 'button', role: 'menuitem', tabindex: '-1', class: i.perigo ? 'perigo' : '', onclick: escolher }, i.rotulo);
+  }
+
+  function abrir(foco = 'primeiro') {
+    fecharMenuAcoes();
+    const lista = h('div', { class: 'menu-acoes', role: 'menu', id: idMenu, 'aria-label': 'Mais ações',
+      onclick: (ev) => ev.stopPropagation() },
+    comuns.map(itemEl),
+    comuns.length && sensiveis.length ? h('div', { class: 'separador', role: 'separator' }) : null,
+    sensiveis.map(itemEl));
+    document.body.append(lista);
+    posicionar(lista);
+    const opcoes = () => [...lista.querySelectorAll('[role=menuitem]')];
+    const tecla = (ev) => {
+      const os = opcoes();
+      const atual = os.indexOf(document.activeElement);
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); fecharMenuAcoes({ devolverFoco: true }); }
+      else if (ev.key === 'ArrowDown') { ev.preventDefault(); os[(atual + 1) % os.length].focus(); }
+      else if (ev.key === 'ArrowUp') { ev.preventDefault(); os[(atual - 1 + os.length) % os.length].focus(); }
+      else if (ev.key === 'Home') { ev.preventDefault(); os[0].focus(); }
+      else if (ev.key === 'End') { ev.preventDefault(); os[os.length - 1].focus(); }
+      else if (ev.key === 'Tab') fecharMenuAcoes({ devolverFoco: true });
+    };
+    const fora = (ev) => { if (!lista.contains(ev.target) && !botao.contains(ev.target)) fecharMenuAcoes(); };
+    const reposicionar = () => fecharMenuAcoes(); // rolar ou redimensionar fecha (evita menu "solto" na tela)
+    lista.addEventListener('keydown', tecla);
+    document.addEventListener('pointerdown', fora, true);
+    window.addEventListener('resize', reposicionar);
+    window.addEventListener('scroll', reposicionar, true);
+    window.addEventListener('hashchange', reposicionar);
+    menuAberto = { lista, botao, limpar: () => {
+      document.removeEventListener('pointerdown', fora, true);
+      window.removeEventListener('resize', reposicionar);
+      window.removeEventListener('scroll', reposicionar, true);
+      window.removeEventListener('hashchange', reposicionar);
+    } };
+    botao.setAttribute('aria-expanded', 'true');
+    const os = opcoes();
+    (foco === 'ultimo' ? os[os.length - 1] : os[0]).focus();
+  }
+
+  // Abaixo e alinhado à direita do botão; se não couber embaixo, abre para cima; nunca sai da janela.
+  function posicionar(lista) {
+    const b = botao.getBoundingClientRect();
+    const m = lista.getBoundingClientRect();
+    const margem = 8;
+    let top = b.bottom + 4;
+    if (top + m.height > window.innerHeight - margem && b.top - m.height - 4 > margem) top = b.top - m.height - 4;
+    top = Math.max(margem, Math.min(top, window.innerHeight - m.height - margem));
+    const left = Math.max(margem, Math.min(b.right - m.width, window.innerWidth - m.width - margem));
+    lista.style.top = `${top}px`;
+    lista.style.left = `${left}px`;
+  }
+
+  function alternar() {
+    if (menuAberto?.botao === botao) fecharMenuAcoes();
+    else abrir();
+  }
+
+  return h('div', { class: 'acoes-linha' }, principal, botao);
+}
+
 // Cabeçalho padrão de página.
 export function cabecalho(titulo, sub, ...acoes) {
   return h('div', { class: 'cab-pagina' }, h('div', {}, h('h1', {}, titulo), sub ? h('div', { class: 'sub' }, sub) : null),
@@ -254,4 +362,4 @@ export function atrasar(fn, ms = 300) { let t; return (...a) => { clearTimeout(t
 // Tela de acesso negado (o bloqueio real é feito pelo servidor; isto só explica o motivo).
 export const acessoNegado = (texto = 'Esta área é exclusiva para administradores.') => h('div', { class: 'cartao acesso-negado', role: 'alert' },
   h('div', { class: 'ic', 'aria-hidden': 'true' }, '!'), h('h1', {}, 'Acesso restrito'), h('p', { class: 'muted' }, texto),
-  h('a', { class: 'btn', href: '#/dashboard' }, 'Voltar ao início'));
+  h('a', { class: 'btn', href: '#/inicio' }, 'Voltar ao início'));

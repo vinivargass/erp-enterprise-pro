@@ -1,6 +1,7 @@
 // Gráficos de barras em SVG puro (uma série por gráfico, cor --serie-1),
 // com dica ao passar o mouse/foco e tabela equivalente para leitores de tela.
 import { h, s } from './ui.js';
+import { idioma } from './idioma.js';
 
 let dica;
 function mostrarDica(ev, linhas) {
@@ -148,7 +149,7 @@ export function rosca({ dados, formatar, titulo }) {
     const a2 = ang + frac * Math.PI * 2;
     const grande = frac > 0.5 ? 1 : 0;
     const cor = d.outros ? 'var(--cat-outros)' : `var(--cat-${i + 1})`;
-    const pct = (frac * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%';
+    const pct = (frac * 100).toLocaleString(idioma, { maximumFractionDigits: 1 }) + '%';
     const linhas = [d.rotulo, formatar(d.valor), pct];
     const caminho = frac >= 0.9999
       ? `M${C},${C - R} A${R},${R} 0 1 1 ${C - 0.01},${C - R} L${C - 0.01},${C - r} A${r},${r} 0 1 0 ${C},${C - r} Z`
@@ -164,7 +165,7 @@ export function rosca({ dados, formatar, titulo }) {
     ang = a2;
   });
   svg.append(s('text', { class: 'centro-rot', x: C, y: C - 4, 'text-anchor': 'middle' }, 'Total'),
-    s('text', { class: 'centro-val', x: C, y: C + 16, 'text-anchor': 'middle' }, formatar(total).replace(/,\d{2}$/, '')));
+    s('text', { class: 'centro-val', x: C, y: C + 16, 'text-anchor': 'middle' }, formatar(total).replace(/[.,]\d{2}$/, '')));
   return h('figure', { class: 'fig-rosca' }, h('div', { class: 'rosca-corpo' }, svg, legenda), tabelaAcessivel(dados, formatar));
 }
 

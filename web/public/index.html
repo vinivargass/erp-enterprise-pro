@@ -17,6 +17,12 @@
     <!-- Ondas discretas na base (asset existente), topo dissolvido no fundo por máscara -->
     <img class="lum-ondas" src="/img/login-ondas.webp" alt="" aria-hidden="true" width="1672" height="601" decoding="async" fetchpriority="low">
 
+    <!-- Idioma da interface (os nomes ficam sempre no próprio idioma, por isso translate="no") -->
+    <div class="chips login-idioma" role="group" aria-label="Idioma / Language" translate="no">
+      <button type="button" data-idioma="pt-BR" lang="pt-BR" title="Português" aria-pressed="false">PT</button>
+      <button type="button" data-idioma="en-US" lang="en-US" title="English (US)" aria-pressed="false">EN</button>
+    </div>
+
     <!-- Coluna esquerda: autenticação -->
     <section class="login-auth">
       <div class="login-auth-centro">
@@ -91,7 +97,7 @@
           </div>
           <header class="login-cab">
             <h1 id="titulo-registro"><span class="tit-1">Crie sua conta.</span><span class="tit-2">Leva menos de um minuto.</span></h1>
-            <p class="login-sub">Contas novas entram como <strong>Consulta</strong> (somente leitura). Um administrador libera outros perfis em Administração → Usuários e perfis.</p>
+            <p class="login-sub">Contas novas começam <strong>sem módulos liberados</strong>. Um administrador libera o acesso em Administração → Usuários e perfis.</p>
           </header>
           <div class="campo-login">
             <label for="reg-nome">Nome completo</label>
@@ -169,44 +175,61 @@
     <aside class="lateral" id="lateral" aria-label="Menu principal">
       <div class="marca"><span class="marca-texto rotulo"><strong>ERP</strong><span>Enterprise Pro</span></span><span class="marca-mini" aria-hidden="true">E</span></div>
       <nav id="menu"></nav>
-      <div class="rodape-lateral rotulo"><span>ERP Enterprise Pro</span><small>v1.0.0 · demonstração</small></div>
+      <nav id="menu-rodape" aria-label="Configurações e ajuda"></nav>
     </aside>
     <div class="principal">
       <header class="topo">
         <button class="btn-icone" id="btn-menu" aria-label="Recolher ou expandir menu" aria-controls="lateral" aria-expanded="true">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
         </button>
-        <div class="contexto" title="Filial 0101 · Matriz">
-          <span class="empresa">Empresa 01 <span class="sep" aria-hidden="true">•</span> Indústria Demo Ltda.</span>
-          <span class="filial">Filial 0101 · Matriz</span>
+        <!-- Empresa/filial ativa: vem do servidor (/api/empresa). Seletor só aparece se houver outras empresas. -->
+        <div class="contexto" id="contexto">
+          <span class="empresa" id="empresa-ativa"></span>
+        </div>
+        <div class="busca-global" role="search">
+          <svg class="ic-busca" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zm4.6-1.9L20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <input id="busca-global" type="search" placeholder="Pesquisar no sistema..." autocomplete="off" aria-label="Pesquisar no sistema" role="combobox" aria-expanded="false" aria-controls="busca-resultados" aria-autocomplete="list">
+          <ul id="busca-resultados" class="busca-resultados" role="listbox" hidden></ul>
         </div>
         <div class="topo-acoes">
-          <div class="busca-global" role="search">
-            <svg class="ic-busca" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zm4.6-1.9L20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-            <input id="busca-global" type="search" placeholder="Buscar no sistema..." autocomplete="off" aria-label="Buscar no sistema" role="combobox" aria-expanded="false" aria-controls="busca-resultados" aria-autocomplete="list">
-            <ul id="busca-resultados" class="busca-resultados" role="listbox" hidden></ul>
+          <!-- Idioma: globo + idioma atual; os nomes ficam sempre no próprio idioma (translate="no") -->
+          <div class="idioma-seletor" translate="no">
+            <button type="button" class="btn-cab" id="btn-idioma" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-idioma">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM3.5 12h17M12 3.5c2.3 2.3 3.4 5.2 3.4 8.5s-1.1 6.2-3.4 8.5M12 3.5C9.7 5.8 8.6 8.7 8.6 12s1.1 6.2 3.4 8.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+              <span id="idioma-atual"></span>
+              <svg class="seta-idioma" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m7 10 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+            </button>
+            <ul class="menu-idioma" id="menu-idioma" role="menu" hidden>
+              <li role="none"><button type="button" role="menuitemradio" data-idioma="pt-BR" lang="pt-BR" aria-checked="false">Português (BR)</button></li>
+              <li role="none"><button type="button" role="menuitemradio" data-idioma="en-US" lang="en-US" aria-checked="false">English (US)</button></li>
+            </ul>
           </div>
+          <!-- Tema: sol no modo escuro (ativa o claro), lua no modo claro (ativa o escuro) -->
+          <button type="button" class="btn-icone btn-tema" id="btn-tema">
+            <svg class="ic-sol" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <svg class="ic-lua" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M19.5 14.6A8 8 0 0 1 9.4 4.5a8 8 0 1 0 10.1 10.1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          </button>
           <div class="notif">
-            <button class="btn-icone" id="btn-notif" aria-label="Notificações" aria-haspopup="true" aria-expanded="false">
+            <button type="button" class="btn-icone" id="btn-notif" aria-label="Notificações" aria-expanded="false" aria-controls="painel-notif">
               <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15zM10 20.5a2.2 2.2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
               <span class="contador" id="notif-contador" hidden></span>
             </button>
             <div class="painel-notif" id="painel-notif" hidden role="dialog" aria-label="Notificações"></div>
           </div>
           <div class="usuario">
-            <button class="usuario-botao" id="btn-usuario" aria-haspopup="true" aria-expanded="false" aria-controls="menu-usuario">
+            <button type="button" class="usuario-botao" id="btn-usuario" aria-expanded="false" aria-controls="menu-usuario">
               <span class="avatar" id="avatar" aria-hidden="true"></span>
               <span class="usuario-info"><strong id="usuario-nome"></strong></span>
               <svg class="seta-usuario" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m7 10 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
             </button>
-            <div class="menu-usuario" id="menu-usuario" hidden>
+            <div class="menu-usuario" id="menu-usuario" role="group" aria-label="Opções da conta" hidden>
               <div class="menu-usuario-cab"><small>Perfil</small><span id="usuario-perfil"></span></div>
               <div class="menu-tema">
                 <small id="rotulo-tema">Tema</small>
                 <div class="chips tema-opcoes" role="group" aria-labelledby="rotulo-tema">
                   <button type="button" data-tema="light" aria-pressed="false">Claro</button>
                   <button type="button" data-tema="dark" aria-pressed="false">Escuro</button>
-                  <button type="button" data-tema="system" aria-pressed="false">Sistema</button>
+                  <button type="button" data-tema="system" aria-pressed="false">Seguir sistema</button>
                 </div>
               </div>
               <button class="btn btn-fantasma" id="btn-sair">Sair do sistema</button>

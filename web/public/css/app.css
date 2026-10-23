@@ -6,29 +6,32 @@
 :root {
   color-scheme: dark;
   /* superfícies */
-  --fundo: #050505;             /* fundo da página, menu lateral e cabeçalho */
-  --superficie: #0B0B0B;        /* campos, menus abertos, modais, notificações */
-  --superficie-2: #141414;      /* item selecionado em listas, hover forte */
-  --superficie-3: #1A1A1A;
-  --hover: #101010;             /* hover discreto */
+  --fundo: #08090A;             /* fundo da página */
+  --cabecalho: #090A0B;         /* menu lateral e cabeçalho */
+  --painel: #101214;            /* painéis da página (mesa de trabalho) */
+  --campo: #151719;             /* campos de texto e busca */
+  --superficie: #101214;        /* menus abertos, modais, notificações */
+  --superficie-2: #16191C;      /* item selecionado em listas, hover forte */
+  --superficie-3: #1B1E21;
+  --hover: #15181B;             /* hover discreto */
   --desabilitado-fundo: #070707;
   --vidro: rgba(255, 255, 255, .015);   /* realce quase invisível de cartões do login */
   /* linhas */
-  --divisor: #1C1C1C;           /* separadores finos entre blocos e linhas de tabela */
-  --borda: #292929;             /* contorno de campos e botões secundários */
-  --borda-forte: #3D3D3D;       /* contorno no hover */
+  --divisor: #1F2226;           /* separadores finos entre blocos e linhas de tabela */
+  --borda: #2B2F33;             /* contorno de campos e botões secundários */
+  --borda-forte: #444A50;       /* contorno no hover */
   --foco-borda: #BDBDBD;        /* contorno do campo em foco */
   /* textos */
-  --texto: #EDEDED;
-  --texto-2: #B8B8B8;
-  --texto-3: #8C8C8C;           /* secundário legível (≈ 6:1 sobre o fundo) */
+  --texto: #F5F5F5;
+  --texto-2: #ADB3BB;
+  --texto-3: #8D939B;           /* secundário legível (≈ 6:1 sobre o fundo) */
   --texto-4: #6A6A6A;           /* apenas rótulos de apoio */
   --destaque: #F2F2F2;          /* títulos, números e ícones em destaque */
   --destaque-max: #FFFFFF;      /* destaque no hover */
   /* ação principal: cor de destaque com texto na cor do fundo */
   --primaria: #F2F2F2; --primaria-hover: #FFFFFF; --primaria-suave: #1C1C1C; --primaria-texto: #050505;
   /* navegação */
-  --lateral: #050505; --lateral-texto: #9A9A9A; --lateral-ativo: #161616; --menu-ativo: #151515;
+  --lateral: #090A0B; --lateral-texto: #D9DCE0; --lateral-ativo: #1C1F22; --menu-ativo: #1C1F22;
   /* semânticas: usadas pontualmente, sempre junto de texto/ícone */
   --ok: #D9D9D9;      --ok-fundo: #161616;
   --alerta: #E3B341;  --alerta-fundo: #1E1A0E; --alerta-borda: #4A3C14;
@@ -65,6 +68,7 @@
 /* ----- Tema CLARO: branco dominante, preto secundário, cinza só como apoio ----- */
 :root[data-theme="light"] {
   color-scheme: light;
+  --cabecalho: #FFFFFF; --painel: #FFFFFF; --campo: #FFFFFF;
   --fundo: #FFFFFF;
   --superficie: #FFFFFF;
   --superficie-2: #F3F3F3;
@@ -147,6 +151,9 @@ h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
   -webkit-mask-image: linear-gradient(180deg, transparent 0%, rgba(0,0,0,.4) 18%, #000 45%);
           mask-image: linear-gradient(180deg, transparent 0%, rgba(0,0,0,.4) 18%, #000 45%); }
 .login-auth, .lum-metricas { position: relative; z-index: 1; }
+/* Idioma: fora do fluxo da grade, no canto superior direito da tela de login */
+.login-idioma { position: absolute; top: 20px; right: clamp(16px, 2.6vw, 56px); z-index: 4; }
+.login-idioma button { height: 30px; padding: 0 12px; font-size: 13px; letter-spacing: .04em; }
 
 /* ---------- Coluna esquerda ---------- */
 .login-auth { display: flex; flex-direction: column; justify-content: center; min-height: 100vh;
@@ -612,7 +619,7 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
 .btn-icone:focus-visible { outline: none; box-shadow: var(--foco); }
 
 /* ---------- Campos ---------- */
-:where(.app, #modal-raiz) :is(input, select, textarea) { background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio-pequeno);
+:where(.app, #modal-raiz) :is(input, select, textarea) { background: var(--campo); border: 1px solid var(--borda); border-radius: var(--raio-pequeno);
   color: var(--texto); height: 38px; padding: 0 12px; font-weight: 400; transition: border-color .15s ease, box-shadow .15s ease; }
 :where(.app, #modal-raiz) textarea { height: auto; padding: 9px 12px; }
 :where(.app, #modal-raiz) :is(input, textarea)::placeholder { color: var(--texto-4); }
@@ -978,3 +985,372 @@ a.vg-mini:hover strong { color: var(--destaque-max); }
 .grupo-filtro .chips { max-width: 100%; overflow-x: auto; }
 .grupo-filtro .chips button { flex: none; }
 @media (max-width: 900px) { .filtros .grupo-filtro { flex-basis: 100%; } }
+
+/* =====================================================================================================
+   Shell (menu lateral + cabeçalho) e página Início "Minha mesa de trabalho" — referência 1672 × 941.
+   Medidas de partida: lateral 228 px, cabeçalho 74 px, conteúdo com 28 px, colunas ~65/35, painéis
+   com 24 px internos, borda 1 px e raio 8 px. Só tokens de tema (claro e escuro).
+   ===================================================================================================== */
+
+/* ---------- Menu lateral ---------- */
+.lateral, .app.recolhido .lateral { background: var(--cabecalho); border-right: 1px solid var(--borda); }
+.lateral { width: 228px; }
+.lateral .marca { display: block; height: 92px; padding: 16px 26px 0; border-bottom: 1px solid var(--borda); margin: 0 12px 0 0; }
+.lateral .marca-texto { display: grid; line-height: 1.05; }
+.lateral .marca-texto strong { font-size: 30px; font-weight: 700; letter-spacing: -.01em; color: var(--destaque); }
+.lateral .marca-texto span { font-size: 17px; font-weight: 400; color: var(--texto); }
+.lateral .marca-mini { display: none; }
+#menu, #menu-rodape { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 18px 11px 12px; align-content: start; }
+#menu { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
+#menu a .rotulo, #menu-rodape a .rotulo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#menu-rodape { padding: 18px 11px 22px; border-top: 1px solid var(--borda); }
+#menu a, #menu-rodape a { display: flex; align-items: center; gap: 18px; min-height: 53px; padding: 0 18px; border-radius: 8px;
+  font-size: 17px; font-weight: 400; color: var(--lateral-texto); text-decoration: none; transition: background-color .15s ease; }
+#menu a svg, #menu-rodape a svg { color: var(--texto); flex: none; }
+#menu a:hover, #menu-rodape a:hover { background: var(--hover); color: var(--destaque); }
+#menu a:focus-visible, #menu-rodape a:focus-visible { outline: none; box-shadow: var(--foco); }
+#menu a[aria-current="page"], #menu-rodape a[aria-current="page"] { background: var(--lateral-ativo); color: var(--destaque); font-weight: 600; box-shadow: none; }
+#menu a[aria-current="page"]::before { display: none; }
+.app.recolhido .lateral { width: 72px; }
+.app.recolhido .lateral .marca { padding: 22px 0 0 16px; }
+.app.recolhido .lateral .marca-texto span { display: none; }
+.app.recolhido .lateral .marca-texto strong { font-size: 20px; }
+.app.recolhido #menu a, .app.recolhido #menu-rodape a { justify-content: center; padding: 0; gap: 0; }
+
+/* ---------- Cabeçalho ---------- */
+.app .topo { height: 74px; padding: 0 26px 0 28px; gap: 20px; background: var(--cabecalho); border-bottom: 1px solid var(--borda); }
+.contexto { flex: 0 1 auto; min-width: 0; }
+.contexto .empresa { font-size: 18px; font-weight: 600; color: var(--destaque); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app .busca-global { flex: 0 1 508px; width: auto; min-width: 180px; margin: 0 auto; }
+.app .busca-global .ic-busca { left: 16px; color: var(--texto-2); }
+.app .busca-global input { height: 44px; padding: 0 16px 0 50px; font-size: 16px; background: var(--campo); border-color: var(--borda); border-radius: 8px; }
+.app .busca-global input::placeholder { color: var(--texto-2); }
+.app .topo-acoes { margin-left: 0; gap: 14px; flex: none; }
+.app .topo .btn-icone { width: 42px; height: 42px; color: var(--texto); }
+.app .topo .btn-icone:hover { background: var(--hover); }
+.usuario { border-left: 0; padding-left: 4px; margin-left: 0; }
+.usuario-botao .avatar { width: 38px; height: 38px; font-size: 15px; font-weight: 600; }
+.usuario-info strong { font-size: 17px; font-weight: 600; color: var(--destaque); }
+.usuario-botao .seta-usuario { color: var(--texto); }
+@media (min-width: 1281px) { .app #btn-menu { display: none; } }
+
+/* Idioma (globo + PT-BR) */
+.idioma-seletor { position: relative; flex: none; }
+.btn-cab { display: inline-flex; align-items: center; gap: 10px; height: 42px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: var(--texto); font: inherit; font-size: 16px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.btn-cab:hover, .btn-cab[aria-expanded="true"] { background: var(--hover); }
+.btn-cab:focus-visible { outline: none; box-shadow: var(--foco); }
+.btn-cab .seta-idioma { transition: transform .15s ease; }
+.btn-cab[aria-expanded="true"] .seta-idioma { transform: rotate(180deg); }
+.menu-idioma { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 200px; margin: 0; padding: 6px; list-style: none;
+  background: var(--superficie); border: 1px solid var(--borda); border-radius: 8px; box-shadow: var(--sombra-alta); }
+.menu-idioma button { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; height: 38px; padding: 0 10px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--texto-2); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.menu-idioma button:hover, .menu-idioma button:focus-visible { outline: none; background: var(--hover); color: var(--texto); }
+.menu-idioma button[aria-checked="true"] { color: var(--destaque); font-weight: 600; }
+.menu-idioma button[aria-checked="true"]::after { content: "✓"; font-weight: 400; }
+
+/* Tema (sol no escuro, lua no claro) + dica */
+:root[data-theme="light"] .btn-tema .ic-sol, :root:not([data-theme="light"]) .btn-tema .ic-lua { display: none; }
+[data-dica] { position: relative; }
+[data-dica]:hover::after, [data-dica]:focus-visible::after { content: attr(data-dica); position: absolute; top: calc(100% + 8px); left: 50%;
+  transform: translateX(-50%); z-index: 50; padding: 5px 9px; border-radius: 6px; background: var(--texto); color: var(--fundo);
+  font-size: 12px; font-weight: 400; line-height: 1.3; white-space: nowrap; pointer-events: none; }
+
+/* ---------- Conteúdo ---------- */
+.app .migalhas { padding: 30px 28px 0; }
+.app .migalhas ol { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; }
+.app .conteudo { padding: 6px 26px 28px 28px; }
+
+/* ---------- Mesa de trabalho ---------- */
+.mesa { display: grid; gap: 22px; }
+.mesa-cab { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px 24px; flex-wrap: wrap; }
+.mesa-cab h1 { margin: 2px 0 0; font-size: clamp(30px, 2.65vw, 44px); font-weight: 700; letter-spacing: -.02em; line-height: 1.1; color: var(--destaque); }
+.mesa-data { margin: 8px 0 0; font-size: clamp(17px, 1.3vw, 22px); color: var(--texto-2); }
+.btn-contorno { display: inline-flex; align-items: center; justify-content: center; gap: 12px; height: 46px; padding: 0 20px; flex: none;
+  border: 1px solid var(--texto-2); border-radius: 6px; background: transparent; color: var(--destaque); font: inherit; font-size: 16px; cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease; }
+.btn-contorno:hover { background: var(--hover); border-color: var(--destaque); }
+.btn-contorno:focus-visible { outline: none; box-shadow: var(--foco); }
+.btn-contorno:disabled { opacity: .5; cursor: progress; }
+.painel .btn-contorno { height: 42px; padding: 0 18px; border-color: var(--borda-forte); font-size: 15px; }
+.painel .btn-contorno.btn-contorno-p { height: 38px; font-size: 14px; }
+
+.mesa-grade { display: grid; grid-template-columns: minmax(0, 1.86fr) minmax(0, 1fr); gap: 19px; align-items: start; }
+.mesa-col { display: grid; gap: 16px; align-content: start; min-width: 0; }
+.painel { background: var(--painel); border: 1px solid var(--borda); border-radius: 8px; padding: 22px 24px 24px; min-width: 0; }
+.painel h2 { margin: 0; font-size: clamp(20px, 1.5vw, 25px); font-weight: 600; letter-spacing: -.01em; color: var(--destaque); }
+.painel-cab { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* Tarefas */
+.painel-tarefas { padding-bottom: 8px; }
+.abas-tarefas { display: flex; margin: 14px -6px 0; border-bottom: 1px solid var(--borda); }
+.abas-tarefas button { position: relative; height: 50px; padding: 0 26px; border: 0; background: transparent; color: var(--texto-2);
+  font: inherit; font-size: 17px; cursor: pointer; }
+.abas-tarefas button:hover { color: var(--texto); }
+.abas-tarefas button[aria-selected="true"] { color: var(--destaque); font-weight: 600; }
+.abas-tarefas button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--destaque); }
+.abas-tarefas button:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--foco-borda); border-radius: 4px; }
+.tarefas-dia { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 12px 2px 0; padding: 10px 14px;
+  border: 1px solid var(--borda); border-radius: 6px; background: var(--campo); font-size: 14px; color: var(--texto); }
+.tarefas-dia .link { font-size: 14px; }
+.tarefas { list-style: none; margin: 0; padding: 0; }
+.tarefa { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: start; gap: 4px 16px; padding: 20px 0 18px 4px; }
+.tarefa + .tarefa, .tarefas-separador + .tarefa { border-top: 1px solid var(--borda); }
+.tarefa-check { appearance: none; -webkit-appearance: none; width: 23px; height: 23px; margin: 1px 22px 0 0; border: 2px solid var(--texto); border-radius: 3px;
+  background: transparent; display: grid; place-items: center; cursor: pointer; flex: none; }
+.tarefa-check:checked { background: var(--destaque); border-color: var(--destaque); }
+.tarefa-check:checked::after { content: ""; width: 6px; height: 11px; margin-top: -2px; border: solid var(--fundo); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.tarefa-check:focus-visible { outline: none; box-shadow: var(--foco); }
+.tarefa-texto { min-width: 0; }
+.tarefa-titulo { display: block; font-size: 19px; font-weight: 600; color: var(--destaque); overflow-wrap: anywhere; }
+.tarefa-desc { margin: 4px 0 0; max-width: 470px; font-size: 16px; line-height: 1.4; color: var(--texto-2); overflow-wrap: anywhere; }
+.tarefa-meta { margin: 6px 0 0; font-size: 14px; color: var(--texto-2); }
+.tarefa-meta.atrasada { color: var(--erro); font-weight: 600; }
+.tarefa-meta.atrasada::before { content: "! "; }
+.tarefa.concluida .tarefa-titulo { color: var(--texto-2); text-decoration: line-through; text-decoration-color: var(--texto-3); }
+.prioridade { display: inline-flex; align-items: center; gap: 12px; height: 34px; padding: 0 18px 0 14px; margin-top: -4px; border: 1px solid var(--borda);
+  border-radius: 17px; background: var(--campo); font-size: 14px; color: var(--texto); white-space: nowrap; }
+.prioridade .ponto { width: 9px; height: 9px; border-radius: 50%; background: var(--texto-3); }
+.prioridade.p-alta .ponto { background: #EF4444; }
+.prioridade.p-media .ponto { background: #F5C518; }
+.tarefa-acoes { position: relative; margin-top: -8px; }
+.tarefa-mais { display: grid; place-items: center; width: 40px; height: 40px; border: 0; border-radius: 6px; background: transparent; color: var(--texto); cursor: pointer; }
+.tarefa-mais:hover, .tarefa-mais[aria-expanded="true"] { background: var(--hover); }
+.tarefa-mais:focus-visible { outline: none; box-shadow: var(--foco); }
+.tarefa-menu { position: absolute; right: 0; top: 42px; z-index: 20; min-width: 150px; margin: 0; padding: 6px; list-style: none;
+  background: var(--superficie); border: 1px solid var(--borda); border-radius: 8px; box-shadow: var(--sombra-alta); }
+.tarefa-menu button { width: 100%; height: 36px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--texto);
+  font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.tarefa-menu button:hover, .tarefa-menu button:focus-visible { outline: none; background: var(--hover); }
+.tarefa-menu button.perigo { color: var(--erro); }
+.tarefas-separador { padding: 16px 4px 8px; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--texto-2); border-top: 1px solid var(--borda); }
+.tarefas-vazio { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 26px 4px 18px; color: var(--texto-2); font-size: 16px; }
+.tarefas-vazio p { margin: 0; }
+.tarefas-lista > .estado { padding: 24px 4px; }
+
+/* Anotações */
+.painel-notas { display: grid; gap: 14px; padding-bottom: 12px; }
+.painel-notas textarea { width: 100%; min-height: 82px; resize: vertical; padding: 14px 16px; font: inherit; font-size: 16px; color: var(--texto);
+  background: var(--campo); border: 1px solid var(--borda); border-radius: 6px; }
+.painel-notas textarea::placeholder { color: var(--texto-2); }
+.nota-rodape { display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
+.nota-estado { font-size: 14px; color: var(--texto-2); }
+.nota-estado.erro { color: var(--erro); }
+
+/* Acesso rápido */
+.painel-atalhos { display: grid; gap: 18px; padding: 22px 13px 14px 22px; }
+.atalhos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 14px; }
+.atalhos.impar > .atalho:last-child { grid-column: 1 / -1; }
+.atalho { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto; align-items: center; min-height: 130px;
+  padding: 18px; border: 1px solid var(--borda); border-radius: 6px; background: var(--fundo); color: var(--destaque); text-decoration: none;
+  transition: border-color .15s ease, background-color .15s ease; }
+.atalho:hover { border-color: var(--borda-forte); background: var(--hover); }
+.atalho:focus-visible { outline: none; box-shadow: var(--foco); }
+.atalho-ic { grid-column: 1; grid-row: 1; margin-bottom: 12px; color: var(--destaque); display: flex; }
+.atalho-nome { grid-column: 1; grid-row: 2; font-size: 18px; font-weight: 600; }
+.atalho-desc { grid-column: 1; grid-row: 3; margin-top: 4px; font-size: 15px; color: var(--texto-2); }
+.atalho-seta { grid-column: 2; grid-row: 2; color: var(--destaque); display: flex; }
+.atalhos-vazio { margin: 0; padding: 4px 8px 10px 0; color: var(--texto-2); font-size: 15px; line-height: 1.5; }
+
+/* Calendário */
+.painel-calendario { padding: 18px 20px 20px; }
+.cal-cab { display: flex; align-items: center; gap: 14px; }
+.cal-ic { color: var(--destaque); display: grid; }
+.cal-cab h2 { font-size: clamp(18px, 1.3vw, 21px); }
+.cal-nav { display: flex; gap: 6px; margin-left: auto; }
+.painel-calendario .btn-icone { width: 40px; height: 40px; color: var(--destaque); }
+.cal-semana, .cal-linha { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); text-align: center; }
+.cal-semana { margin-top: 18px; font-size: 13px; color: var(--texto-2); letter-spacing: .02em; }
+.cal-grade { display: grid; margin-top: 10px; }
+.cal-dia { width: 100%; max-width: 54px; height: 38px; margin: 0 auto; border: 1px solid transparent; border-radius: 6px; background: transparent;
+  color: var(--destaque); font: inherit; font-size: 16px; cursor: pointer; display: grid; place-items: center; }
+.cal-dia.fora { color: var(--texto-4); }
+.cal-dia:hover { background: var(--hover); }
+.cal-dia.hoje { border-color: var(--texto-2); }
+.cal-dia.selecionado { background: var(--destaque); color: var(--fundo); font-weight: 700; border-color: var(--destaque); }
+.cal-dia:focus-visible { outline: none; box-shadow: var(--foco); }
+
+/* Personalizar */
+.pers { display: grid; gap: 10px; }
+.pers h3 { margin: 8px 0 0; font-size: 15px; font-weight: 600; color: var(--texto); }
+.pers-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pers-lista li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px 6px 10px; border: 1px solid var(--borda); border-radius: 6px; }
+.pers-lista li.marcado { border-color: var(--borda-forte); }
+.pers-lista label, .pers-opcao { display: flex; align-items: center; gap: 10px; color: var(--texto); font-size: 14px; cursor: pointer; }
+.pers-ordem { display: flex; align-items: center; gap: 6px; }
+.pers-contador { margin: 0; }
+#modal-raiz .espaco { flex: 1; }
+
+/* Ajuda */
+.ajuda-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.ajuda-topico { background: var(--painel); border: 1px solid var(--borda); border-radius: 8px; padding: 20px 22px; }
+.ajuda-topico h2 { margin: 0 0 10px; font-size: 18px; font-weight: 600; }
+.ajuda-topico ul { margin: 0; padding-left: 18px; display: grid; gap: 8px; color: var(--texto-2); line-height: 1.5; }
+.ajuda > .ajuda-topico { margin-top: 16px; }
+.ajuda-topico .ajuda-modulos { list-style: none; padding: 0; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.ajuda-modulos a { display: flex; gap: 12px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: 6px; color: var(--texto); text-decoration: none; }
+.ajuda-modulos a:hover { background: var(--hover); }
+.ajuda-modulos span { display: grid; gap: 2px; }
+.ajuda-modulos small { color: var(--texto-2); }
+
+/* ---------- Responsivo ---------- */
+@media (max-width: 1440px) {
+  .tarefa-titulo { font-size: 17.5px; }
+  .tarefa-desc { font-size: 15px; }
+  .atalho { min-height: 118px; padding: 16px; }
+}
+@media (max-width: 1280px) {
+  .app .topo { gap: 14px; padding: 0 18px; }
+  .usuario-info { display: none; }
+  .mesa-grade { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+}
+@media (max-width: 1100px) {
+  .mesa-grade { grid-template-columns: minmax(0, 1fr); }
+  .mesa-grade > .mesa-col:last-child { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }
+  .contexto { display: none; }
+  .app .busca-global { margin: 0; flex: 1 1 auto; }
+}
+@media (max-width: 900px) {
+  .lateral { width: 260px; }
+  .app .conteudo { padding: 6px 16px 24px; }
+  .app .migalhas { padding: 18px 16px 0; }
+}
+@media (max-width: 600px) {
+  .app .topo { height: auto; flex-wrap: wrap; align-items: center; padding: 10px 14px; row-gap: 10px; }
+  .app .topo-acoes { margin-left: auto; gap: 4px; }
+  .app .busca-global { order: 5; flex: 1 1 100%; max-width: none; }
+  .btn-cab { padding: 0 8px; gap: 6px; font-size: 14px; }
+  .mesa-cab h1 { font-size: 28px; }
+  .painel { padding: 18px 16px; }
+  .abas-tarefas button { padding: 0 14px; font-size: 15px; }
+  .tarefa { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .tarefa .prioridade { grid-column: 2; grid-row: 2; justify-self: start; margin-top: 6px; }
+  .tarefa-check { margin-right: 10px; }
+  .atalho { min-height: 0; }
+  .mesa-cab .btn-contorno { height: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #menu a, #menu-rodape a, .btn-contorno, .atalho, .btn-cab .seta-idioma { transition: none; }
+}
+
+/* Notas em bloquinhos (Anotações pessoais) */
+.notas-blocos { list-style: none; margin: 4px 0 0; padding: 14px 0 0; border-top: 1px solid var(--borda);
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.nota-bloco { display: flex; flex-direction: column; gap: 10px; min-height: 132px; padding: 14px 14px 10px; background: var(--campo);
+  border: 1px solid var(--borda); border-top: 3px solid var(--texto-3); border-radius: 6px; }
+.nota-bloco-texto { flex: 1; margin: 0; font-size: 15px; line-height: 1.45; color: var(--texto); white-space: pre-wrap; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
+.nota-bloco-rodape { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.nota-bloco-rodape time { font-size: 12.5px; color: var(--texto-2); }
+.nota-bloco-acoes { display: flex; align-items: center; gap: 4px; }
+.nota-bloco .btn-icone { width: 32px; height: 32px; color: var(--texto-2); }
+.nota-bloco .btn-icone:hover { color: var(--destaque); background: var(--hover); }
+.nota-bloco.editando { border-top-color: var(--destaque); }
+.nota-bloco.editando textarea { width: 100%; min-height: 96px; resize: vertical; padding: 8px 10px; font: inherit; font-size: 15px; color: var(--texto);
+  background: var(--painel); border: 1px solid var(--borda-forte); border-radius: 6px; }
+@media (max-width: 600px) { .notas-blocos { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------------------------------------------------------------- acessos adicionais (perfil de acesso) */
+.perfil-adicionais { margin-top: 14px; border-top: 1px solid var(--borda); padding-top: 10px; }
+.perfil-adicionais h3 { margin: 0 0 6px; font-size: 14px; }
+.perfil-adicionais-lista { display: grid; gap: 6px; }
+.perfil-adicionais-lista label { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+.perfil-adicionais-lista input { accent-color: var(--primaria); }
+.perfil-contagem { margin: 10px 0 0; font-weight: 600; font-size: 13px; }
+.selo-adicional { display: inline-block; margin-left: 6px; color: var(--primaria); font-weight: 600; cursor: help; }
+
+/* ---------------------------------------------------------------- ações de linha: principal + "Mais ações" */
+.acoes-linha { align-items: center; flex-wrap: nowrap; }
+.btn-mais { width: 28px; padding: 0; justify-content: center; }
+.btn-mais[aria-expanded="true"] { background: var(--superficie-2); border-color: var(--borda-forte); }
+.menu-acoes { position: fixed; z-index: 60; min-width: 200px; max-width: min(300px, calc(100vw - 16px)); padding: 4px;
+  background: var(--superficie); border: 1px solid var(--borda-forte); border-radius: var(--raio); box-shadow: var(--sombra-alta); }
+.menu-acoes [role="menuitem"] { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--raio-pequeno);
+  background: none; color: var(--texto); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.menu-acoes [role="menuitem"]:hover, .menu-acoes [role="menuitem"]:focus-visible { background: var(--hover); }
+.menu-acoes [role="menuitem"]:focus-visible { outline: 2px solid var(--primaria); outline-offset: -2px; }
+.menu-acoes [role="menuitem"].perigo { color: var(--erro); }
+.menu-acoes [role="menuitem"].perigo:hover, .menu-acoes [role="menuitem"].perigo:focus-visible { background: var(--erro-fundo); }
+.menu-acoes .separador { height: 1px; margin: 4px 2px; background: var(--borda); }
+
+/* Painéis do cabeçalho: foco visível nas opções do seletor de idioma (antes só mudava o fundo). */
+.menu-idioma button:focus-visible { box-shadow: inset 0 0 0 2px var(--foco-borda); }
+
+/* ---------------------------------------------------------------- transição da troca de tema
+   Anima os TOKENS de cor no :root, não os elementos. Cada token é registrado como <color> (@property), então o
+   navegador consegue interpolá-lo; todos os componentes continuam usando var(--token) e recebem, a cada quadro,
+   a MESMA cor intermediária pela cascata: texto, fundo e bordas avançam juntos, sem transições por elemento,
+   sem !important e sem mexer nas transições próprias dos componentes. Só cores mudam (sem deslocar o layout).
+   A classe .tema-trocando existe só durante a troca (js/tema.js); fora dela não há transição de tema.
+   Tokens de gráficos e as sombras (valores compostos) não são registrados: trocam direto.
+   Os initial-value repetem o tema escuro (o padrão em :root). */
+@property --fundo { syntax: '<color>'; inherits: true; initial-value: #08090A; }
+@property --cabecalho { syntax: '<color>'; inherits: true; initial-value: #090A0B; }
+@property --painel { syntax: '<color>'; inherits: true; initial-value: #101214; }
+@property --campo { syntax: '<color>'; inherits: true; initial-value: #151719; }
+@property --superficie { syntax: '<color>'; inherits: true; initial-value: #101214; }
+@property --superficie-2 { syntax: '<color>'; inherits: true; initial-value: #16191C; }
+@property --superficie-3 { syntax: '<color>'; inherits: true; initial-value: #1B1E21; }
+@property --hover { syntax: '<color>'; inherits: true; initial-value: #15181B; }
+@property --desabilitado-fundo { syntax: '<color>'; inherits: true; initial-value: #070707; }
+@property --vidro { syntax: '<color>'; inherits: true; initial-value: rgba(255, 255, 255, .015); }
+@property --divisor { syntax: '<color>'; inherits: true; initial-value: #1F2226; }
+@property --borda { syntax: '<color>'; inherits: true; initial-value: #2B2F33; }
+@property --borda-forte { syntax: '<color>'; inherits: true; initial-value: #444A50; }
+@property --foco-borda { syntax: '<color>'; inherits: true; initial-value: #BDBDBD; }
+@property --texto { syntax: '<color>'; inherits: true; initial-value: #F5F5F5; }
+@property --texto-2 { syntax: '<color>'; inherits: true; initial-value: #ADB3BB; }
+@property --texto-3 { syntax: '<color>'; inherits: true; initial-value: #8D939B; }
+@property --texto-4 { syntax: '<color>'; inherits: true; initial-value: #6A6A6A; }
+@property --destaque { syntax: '<color>'; inherits: true; initial-value: #F2F2F2; }
+@property --destaque-max { syntax: '<color>'; inherits: true; initial-value: #FFFFFF; }
+@property --primaria { syntax: '<color>'; inherits: true; initial-value: #F2F2F2; }
+@property --primaria-hover { syntax: '<color>'; inherits: true; initial-value: #FFFFFF; }
+@property --primaria-suave { syntax: '<color>'; inherits: true; initial-value: #1C1C1C; }
+@property --primaria-texto { syntax: '<color>'; inherits: true; initial-value: #050505; }
+@property --lateral { syntax: '<color>'; inherits: true; initial-value: #090A0B; }
+@property --lateral-texto { syntax: '<color>'; inherits: true; initial-value: #D9DCE0; }
+@property --lateral-ativo { syntax: '<color>'; inherits: true; initial-value: #1C1F22; }
+@property --menu-ativo { syntax: '<color>'; inherits: true; initial-value: #1C1F22; }
+@property --ok { syntax: '<color>'; inherits: true; initial-value: #D9D9D9; }
+@property --ok-fundo { syntax: '<color>'; inherits: true; initial-value: #161616; }
+@property --alerta { syntax: '<color>'; inherits: true; initial-value: #E3B341; }
+@property --alerta-fundo { syntax: '<color>'; inherits: true; initial-value: #1E1A0E; }
+@property --alerta-borda { syntax: '<color>'; inherits: true; initial-value: #4A3C14; }
+@property --erro { syntax: '<color>'; inherits: true; initial-value: #F07167; }
+@property --erro-fundo { syntax: '<color>'; inherits: true; initial-value: #221110; }
+@property --erro-borda { syntax: '<color>'; inherits: true; initial-value: #4A2421; }
+@property --erro-texto { syntax: '<color>'; inherits: true; initial-value: #F3C3BF; }
+@property --perigo-texto { syntax: '<color>'; inherits: true; initial-value: #120404; }
+@property --info { syntax: '<color>'; inherits: true; initial-value: #C8C8C8; }
+@property --info-fundo { syntax: '<color>'; inherits: true; initial-value: #161616; }
+@property --neutro { syntax: '<color>'; inherits: true; initial-value: #9A9A9A; }
+@property --neutro-fundo { syntax: '<color>'; inherits: true; initial-value: #121212; }
+@property --veu { syntax: '<color>'; inherits: true; initial-value: rgba(0, 0, 0, .78); }
+
+:root.tema-trocando {
+  transition-property: --fundo, --cabecalho, --painel, --campo, --superficie, --superficie-2, --superficie-3, --hover,
+    --desabilitado-fundo, --vidro, --divisor, --borda, --borda-forte, --foco-borda, --texto, --texto-2, --texto-3, --texto-4,
+    --destaque, --destaque-max, --primaria, --primaria-hover, --primaria-suave, --primaria-texto, --lateral, --lateral-texto,
+    --lateral-ativo, --menu-ativo, --ok, --ok-fundo, --alerta, --alerta-fundo, --alerta-borda, --erro, --erro-fundo,
+    --erro-borda, --erro-texto, --perigo-texto, --info, --info-fundo, --neutro, --neutro-fundo, --veu;
+  transition-duration: 200ms;
+  transition-timing-function: ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root.tema-trocando { transition: none; }
+}
+/* Durante a troca, os componentes que têm transição de cor própria (pensada para hover/foco) NÃO podem animar
+   sozinhos: eles seguiriam outro ritmo (ou trocariam na hora) e a tela ficaria com cores dos dois temas ao mesmo
+   tempo. Nesta janela eles só acompanham os tokens. A lista é exatamente a dos seletores com transição de cor;
+   o :root.tema-trocando na frente deixa a regra mais específica que a original, sem !important.
+   Fora da troca (classe ausente) as transições de hover/foco continuam como eram. */
+:root.tema-trocando :is(.lum-social, .login-form input, .lembrar input, .btn-entrar, .demo-chip, .btn,
+  input, select, textarea, #menu a, #menu-rodape a, .kpi, .bi-kpi, tbody tr, .btn-contorno, .atalho) { transition: none; }
+
+/* A área principal recebe foco por programa a cada navegação (para leitores de tela anunciarem a página nova);
+   ela não é um controle, então não mostra anel. Sem isto, depois de usar o teclado o navegador desenhava o
+   contorno de :focus-visible em volta de toda a página: uma linha preta (claro) ou branca (escuro) cortando o
+   conteúdo. Botões, campos e links continuam com o anel de foco normal. */
+.conteudo:focus, .conteudo:focus-visible { outline: none; }

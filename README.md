@@ -1,80 +1,75 @@
 # ERP Enterprise Pro
 
-> 🚧 **Under active development.** The web app runs and its automated tests pass, but features are still being added and changed. Data in the demo is fictitious.
+Projeto demonstrativo de ERP inspirado nos módulos do TOTVS Protheus, feito como **avaliação técnica**. Tem duas camadas, sempre identificadas:
 
-A business management system (ERP) for small and mid-sized companies: sales orders, inventory, customers, finance and reports in one web app, with a live dashboard and role-based access.
+| Camada | Pasta | Natureza | Estado |
+|---|---|---|---|
+| **Demonstração web** | `web/` | Aplicação navegável: frontend SPA + API REST em Node + SQLite. Dados **fictícios**. **Não** se conecta ao Protheus. | Executável; 48/48 testes aprovados |
+| **Implementação Protheus** | `protheus/` | Fontes **ADVPL** (`.PRW`), dicionário proposto, ExecAuto, MVC, PE, REST, TReport e plano de implantação. | **Não compilado** e não executado em AppServer |
 
-*Leia em português: [README.pt-BR.md](README.pt-BR.md)*
+> A interface é original: não usa logotipos nem identidade visual da TOTVS. "Protheus", "TOTVS" e os nomes de rotinas citados pertencem aos seus titulares e aparecem só como referência técnica.
 
-![Dashboard](docs/guia/03-visao-geral.png)
+## Como executar a demonstração
 
-## Features
+Requisito: Node.js 22.5 ou superior **ou** o VS Code instalado (os scripts usam o Node embutido nele, se não houver outro).
 
-- **Dashboard** with revenue, average ticket, items sold and accounts receivable, plus a 6-month revenue chart
-- **Customers** with CPF/CNPJ validation and duplicate blocking
-- **Products** and **inventory** with stock reservation, stock movements history (kardex) and minimum-stock alerts
-- **Sales orders** with a full workflow: draft → sent → pending approval → approved → invoiced
-- **Finance**: accounts receivable and payable, partial and full payments
-- **Reports** with filters and CSV export that opens directly in Excel
-- **6 user roles** (admin, manager, sales, inventory, finance, read-only), each seeing only what it is allowed to
+```bat
+iniciar.cmd            :: sobe em http://localhost:3000
+iniciar.cmd --reset    :: apaga o banco de demonstração e recria os dados fictícios
+testar.cmd             :: roda os testes automatizados
+```
+Ou, com Node no PATH: `cd web && npm start` / `npm test`.
 
-## Business rules enforced (and tested)
+### Usuários de demonstração (senha de todos: `Demo@2026`)
+| Usuário | Perfil | Pode |
+|---|---|---|
+| `admin` | ADMIN | tudo, inclusive parâmetros e Painel executivo |
+| `diretoria` | DIRETORIA | tudo do gerente + Painel executivo (criado só em bancos novos; num banco existente, o `admin` concede o perfil) |
+| `gerente` | GERENTE | cadastros, aprovar/rejeitar e faturar pedidos, auditoria (sem Painel executivo) |
+| `vendedor` | VENDEDOR | clientes e pedidos (só os próprios) |
+| `estoque` | ESTOQUE | produtos e movimentações |
+| `financeiro` | FINANCEIRO | consultar e liquidar títulos |
+| `consulta` | CONSULTA | somente leitura |
 
-| Rule | How it works |
+Na tela de login há **Criar conta**: a conta nova entra sem módulos liberados (SEM_ACESSO), e o `admin` define o perfil em *Administração → Usuários e perfis*. O **Painel executivo** (resultados estratégicos) é só para os perfis ADMIN e DIRETORIA.
+
+### Roteiro rápido para avaliar
+1. Entre como `vendedor`, crie um pedido com desconto de 15% e envie: ele fica **pendente** (alçada de 10%).
+2. Entre como `gerente`, aprove (o estoque é reservado) e fature (o estoque é baixado e os títulos são gerados). Veja o kardex e o dashboard mudarem.
+3. Tente faturar um pedido cancelado, pedir mais do que o disponível, cadastrar um CNPJ repetido ou liquidar duas vezes o mesmo título: todos são bloqueados.
+4. Em **Parâmetros**, troque `ZZ_CREDPOL` para `REJEITAR` e reenvie um pedido acima do crédito.
+5. Em **Relatórios**, gere e exporte um CSV (abre direto no Excel em pt-BR).
+
+## Estrutura e documentação
+| Documento | Conteúdo |
 |---|---|
-| No double invoicing | 3 simultaneous invoice requests for the same order: 1 succeeds, 2 are rejected, stock is written off once |
-| No overselling | Stock is reserved on approval; available stock already discounts other orders' reservations |
-| Discount approval | Discounts above 10% need a manager; the person who created the order cannot approve it |
-| Credit limit | Orders above the customer's credit go to approval or are rejected, depending on a setting |
-| No duplicate payments | Repeated requests return the same result; a second payment on the same bill is blocked |
-| Immutable stock history | Stock movements cannot be edited or deleted in the database |
-| Security | Password hashing (scrypt), CSRF protection, login lockout after 5 failed attempts, SQL-injection-safe queries |
+| [docs/ARQUITETURA.md](docs/ARQUITETURA.md) | Fases 1 e 2: requisitos, restrições, riscos, decisões, estrutura de diretórios |
+| [docs/API.md](docs/API.md) | Endpoints REST, convenções, erros e exemplos de payload |
+| [docs/TESTES.md](docs/TESTES.md) | Casos de teste e **resultados obtidos** |
+| [docs/ADMINISTRACAO.md](docs/ADMINISTRACAO.md) | Painel exclusivo para administradores e gestão do perfil Admin: análise, arquivos, banco, segurança e testes |
+| [docs/SEGURANCA.md](docs/SEGURANCA.md) | Autenticação, autorização, entradas maliciosas, concorrência, backup |
+| [docs/CONFORMIDADE.md](docs/CONFORMIDADE.md) | O que foi validado, dependências, limitações, **autoavaliação 0–100** |
+| [protheus/dicionario/DICIONARIO.md](protheus/dicionario/DICIONARIO.md) | Tabelas padrão usadas, tabelas Z (campos, índices, compartilhamento), SX6, SX1, SX7 |
+| [protheus/docs/INTEGRACAO.md](protheus/docs/INTEGRACAO.md) | MsExecAuto (parâmetros, erros, transação), ponto de entrada, REST, integração futura |
+| [protheus/docs/IMPLANTACAO.md](protheus/docs/IMPLANTACAO.md) | Pré-requisitos, ordem de compilação, menus, homologação, rollback |
+| [protheus/docs/TESTES_PROTHEUS.md](protheus/docs/TESTES_PROTHEUS.md) | 24 cenários com procedimento e resultado esperado (não executados) |
+| [protheus/docs/MATRIZ.md](protheus/docs/MATRIZ.md) | Matriz funcionalidade web × implementação Protheus |
 
-## Tech stack
+## Fontes ADVPL (`protheus/src`)
+| Fonte | Responsabilidade | Recursos Protheus |
+|---|---|---|
+| ZERPVAL.PRW | Regras compartilhadas | BeginSql, FWGetArea/FWRestArea, RecLock em tabelas Z, GetAutoGRLog |
+| ZERPCLI.PRW | Clientes (SA1) | FWMBrowse + legendas, MsExecAuto CRMA980/MATA030 |
+| ZERPPROD.PRW | Produtos (SB1/SB2) | MsExecAuto MATA010, FWTemporaryTable, FWBrwColumn |
+| ZERPDESC.PRW | Alçadas de desconto (ZA3) | **MVC completo**: MPFormModel, FWFormView, FWMVCMenu |
+| ZERPPED.PRW | Pedidos (SC5/SC6 + ZA4) | **MsExecAuto MATA410**, Begin/DisarmTransaction, GetSxeNum, RecLock, ParamBox |
+| ZERPEST.PRW | Estoque (SD3/SB2) | MsExecAuto MATA240, LockByName, idempotência |
+| ZERPFIN.PRW | Financeiro (SE1/SE2) | MsExecAuto FINA070/FINA080, LockByName |
+| ZERPREL.PRW | Relatórios | TReport, TRSection, TRCell, TRFunction, SX1 |
+| ZERPPE.PRW | Ponto de entrada | MT410TOK (MATA410) |
+| ZERPAPI.PRW | Integração REST | WSRESTFUL, JsonObject, SetRestFault |
 
-- **Backend:** Node.js 22 (native `node:sqlite` and `node:test`), REST API, layered architecture (HTTP → business services → persistence)
-- **Frontend:** vanilla JavaScript (ES modules), HTML and CSS, no framework and no build step
-- **Database:** SQLite, money stored as integer cents
-- **Dependencies:** none (zero npm packages)
+Os fontes foram escritos sem acentos (ASCII), para evitar problemas de codificação no RPO e na tela do SmartClient.
 
-## Run it locally
-
-Requires Node.js 22.5+ (or VS Code installed — the scripts fall back to the Node bundled with it).
-
-```bash
-cd web
-npm start          # http://localhost:3000
-npm test           # automated tests
-```
-
-On Windows you can also double-click `iniciar.cmd` (start) or `testar.cmd` (tests).
-
-**Demo users** (password for all: `Demo@2026`): `admin`, `gerente`, `vendedor`, `estoque`, `financeiro`, `consulta`.
-
-## Project structure
-
-```
-web/
-├── server/      Node.js API: routes, auth, database, business services
-├── public/      Frontend: pages, components, charts
-└── tests/       End-to-end tests against the real API
-docs/            Architecture, API, security, tests and a step-by-step user guide (docs/guia)
-protheus/        Reference implementation of the same rules for TOTVS Protheus (ADVPL) — not compiled yet
-```
-
-## Status and roadmap
-
-- [x] Core modules: dashboard, customers, products, orders, inventory, finance, reports
-- [x] Roles and permissions, audit log
-- [x] Automated tests for business rules and security
-- [ ] Online demo
-- [ ] Purchasing module (accounts payable are currently seeded)
-- [ ] Autocomplete search for large customer/product lists
-- [ ] Interface tests
-
-The invoicing in this demo does not issue tax documents (NF-e) or calculate taxes.
-
-## Author
-
-**Vinicius Vargas** · Software Engineering student · Cuiabá, Brazil
-viniciusvargas0202@gmail.com
+## Aviso
+Faturamento, impostos, TES, NF-e e liquidações são **demonstrativos**. Qualquer uso real exige configuração fiscal e financeira validada por especialistas e testes em ambiente de homologação.

@@ -16,6 +16,31 @@ function paraApi(r) {
   return { ...resto, ativo: !!r.ativo, limite_credito: reais(limite_credito_cent) };
 }
 
+// ---------- Regras de acesso a clientes ----------
+// Escopo: o vendedor só enxerga a própria carteira e os clientes dos próprios pedidos (404 nos demais).
+const soCarteira = (ctx) => ctx.usuario.perfil === 'VENDEDOR';
+const FILTRO_CARTEIRA = '(vendedor = ? COLLATE NOCASE OR id IN (SELECT cliente_id FROM pedidos WHERE vendedor = ? COLLATE NOCASE))';
+function visivel(ctx, cli) {
+  if (!soCarteira(ctx)) return true;
+  return ctx.db.prepare(`SELECT 1 FROM clientes WHERE id = ? AND ${FILTRO_CARTEIRA}`).get(cli.id, ctx.usuario.login, ctx.usuario.login) !== undefined;
+}
+// Limite e crédito só vão para o navegador de quem tem 'clientes.credito'.
+function protegerCampos(ctx, c) {
+  if (!c || base.pode(ctx, 'clientes.credito')) return c;
+  const { limite_credito, credito_utilizado, credito_disponivel, ...resto } = c;
+  return resto;
+}
+// Vendedor responsável válido: login de um VENDEDOR ativo (ou nenhum).
+function vendedorValido(ctx, login) {
+  if (login === null || login === undefined || login === '') return null;
+  const v = ctx.db.prepare("SELECT login FROM usuarios WHERE login = ? COLLATE NOCASE AND perfil = 'VENDEDOR' AND ativo = 1").get(String(login));
+  if (!v) throw erro.validacao('Existem campos inválidos.', { vendedor: 'Escolha um vendedor ativo.' });
+  return v.login;
+}
+function vendedores(ctx) {
+  return ctx.db.prepare("SELECT login, nome FROM usuarios WHERE perfil = 'VENDEDOR' AND ativo = 1 ORDER BY nome").all();
+}
+
 function validar(ctx, dados) {
   const v = new Validador(dados)
     .texto('razao_social', { obrigatorio: true, max: 80, min: 3 })
@@ -92,21 +117,29 @@ function listar(ctx, query = {}) {
   if (query.status === 'ativo') filtros.push('ativo = 1');
   if (query.status === 'inativo') filtros.push('ativo = 0');
   if (query.uf && UFS.includes(String(query.uf).toUpperCase())) { filtros.push('uf = ?'); args.push(String(query.uf).toUpperCase()); }
+  if (soCarteira(ctx)) { filtros.push(FILTRO_CARTEIRA); args.push(ctx.usuario.login, ctx.usuario.login); }
 
   const where = filtros.length ? 'WHERE ' + filtros.join(' AND ') : '';
-  const ordem = base.ordenacao(query, {
-    codigo: 'codigo', razao_social: 'razao_social', municipio: 'municipio', uf: 'uf', limite_credito: 'limite_credito_cent',
-  }, 'codigo');
+  const colunas = { codigo: 'codigo', razao_social: 'razao_social', municipio: 'municipio', uf: 'uf' };
+  if (base.pode(ctx, 'clientes.credito')) colunas.limite_credito = 'limite_credito_cent'; // sem crédito, nem ordena por ele
+  const ordem = base.ordenacao(query, colunas, 'codigo');
   const pag = base.paginar(ctx, query);
   const total = ctx.db.prepare(`SELECT COUNT(*) n FROM clientes ${where}`).get(...args).n;
   const itens = ctx.db.prepare(`SELECT * FROM clientes ${where} ORDER BY ${ordem} LIMIT ? OFFSET ?`)
-    .all(...args, pag.tamanho, pag.offset).map(paraApi);
+    .all(...args, pag.tamanho, pag.offset).map((r) => protegerCampos(ctx, paraApi(r)));
   return { itens, total, pagina: pag.pagina, tamanho: pag.tamanho };
 }
 
+// Uso interno (pedidos, crédito): sem regra de escopo.
 function obterLinha(ctx, id) {
   const r = ctx.db.prepare('SELECT * FROM clientes WHERE id = ?').get(Number(id));
   if (!r) throw erro.naoEncontrado('Cliente não encontrado.');
+  return r;
+}
+// Para as rotas da API: fora da carteira do vendedor responde 404, como se não existisse.
+function obterVisivel(ctx, id) {
+  const r = obterLinha(ctx, id);
+  if (!visivel(ctx, r)) throw erro.naoEncontrado('Cliente não encontrado.');
   return r;
 }
 
@@ -120,13 +153,18 @@ function creditoUtilizadoCent(ctx, clienteId, ignorarPedidoId) {
 }
 
 function obter(ctx, id) {
-  const r = obterLinha(ctx, id);
+  const r = obterVisivel(ctx, id);
   const usado = creditoUtilizadoCent(ctx, r.id);
-  return { ...paraApi(r), credito_utilizado: reais(usado), credito_disponivel: reais(r.limite_credito_cent - usado) };
+  return protegerCampos(ctx, { ...paraApi(r), credito_utilizado: reais(usado), credito_disponivel: reais(r.limite_credito_cent - usado) });
 }
 
 function incluir(ctx, dados) {
-  const d = validar(ctx, dados);
+  // Carteira e limite de crédito só por quem gerencia a carteira; o vendedor cadastra na própria carteira, sem limite.
+  const carteira = base.pode(ctx, 'clientes.carteira');
+  const entrada = { ...(dados || {}) };
+  if (!carteira) entrada.limite_credito = 0;
+  const vendedor = carteira ? vendedorValido(ctx, entrada.vendedor) : (soCarteira(ctx) ? ctx.usuario.login : null);
+  const d = validar(ctx, entrada);
   try {
     return transacao(ctx.db, () => {
       garantirDocumentoUnico(ctx, d.documento);
@@ -134,11 +172,11 @@ function incluir(ctx, dados) {
       const agora = base.agoraIso(ctx);
       const { lastInsertRowid } = ctx.db.prepare(`INSERT INTO clientes (codigo, razao_social, nome_fantasia, tipo_pessoa,
           documento, inscricao_estadual, cep, logradouro, numero, complemento, bairro, municipio, uf, telefone, email,
-          cond_pagto, limite_credito_cent, ativo, criado_em, atualizado_em)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+          cond_pagto, limite_credito_cent, ativo, vendedor, criado_em, atualizado_em)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
         .run(codigo, d.razao_social, d.nome_fantasia, d.tipo_pessoa, d.documento, d.inscricao_estadual, d.cep,
           d.logradouro, d.numero, d.complemento, d.bairro, d.municipio, d.uf, d.telefone, d.email.toLowerCase(),
-          d.cond_pagto, centavos(d.limite_credito), d.ativo ? 1 : 0, agora, agora);
+          d.cond_pagto, centavos(d.limite_credito), d.ativo ? 1 : 0, vendedor, agora, agora);
       base.auditar(ctx, 'CLIENTE', Number(lastInsertRowid), 'INCLUSAO', { codigo, documento: d.documento });
       return obter(ctx, lastInsertRowid);
     });
@@ -146,23 +184,30 @@ function incluir(ctx, dados) {
 }
 
 function alterar(ctx, id, dados) {
-  const d = validar(ctx, dados);
+  const atualAntes = obterVisivel(ctx, id);
+  // Sem 'clientes.carteira' o limite e o vendedor ficam como estão; sem 'clientes.inativar', o status também.
+  const carteira = base.pode(ctx, 'clientes.carteira');
+  const entrada = { ...(dados || {}) };
+  if (!carteira) entrada.limite_credito = reais(atualAntes.limite_credito_cent);
+  if (!base.pode(ctx, 'clientes.inativar')) entrada.ativo = !!atualAntes.ativo;
+  const vendedor = carteira && 'vendedor' in entrada ? vendedorValido(ctx, entrada.vendedor) : atualAntes.vendedor;
+  const d = validar(ctx, entrada);
   try {
     return transacao(ctx.db, () => {
-      const atual = obterLinha(ctx, id);
+      const atual = obterVisivel(ctx, id);
       base.exigirVersao(dados.versao, atual.versao);
       garantirDocumentoUnico(ctx, d.documento, atual.id);
       const antes = paraApi(atual);
-      const depois = { ...d, email: d.email.toLowerCase() };
-      const dif = base.diferencas(antes, depois, CAMPOS_HIST);
+      const depois = { ...d, email: d.email.toLowerCase(), vendedor };
+      const dif = base.diferencas(antes, depois, [...CAMPOS_HIST, 'vendedor']);
       if (!Object.keys(dif).length) return obter(ctx, id);
       const r = ctx.db.prepare(`UPDATE clientes SET razao_social=?, nome_fantasia=?, tipo_pessoa=?, documento=?,
           inscricao_estadual=?, cep=?, logradouro=?, numero=?, complemento=?, bairro=?, municipio=?, uf=?, telefone=?,
-          email=?, cond_pagto=?, limite_credito_cent=?, ativo=?, versao = versao + 1, atualizado_em=?
+          email=?, cond_pagto=?, limite_credito_cent=?, ativo=?, vendedor=?, versao = versao + 1, atualizado_em=?
           WHERE id = ? AND versao = ?`)
         .run(d.razao_social, d.nome_fantasia, d.tipo_pessoa, d.documento, d.inscricao_estadual, d.cep, d.logradouro,
           d.numero, d.complemento, d.bairro, d.municipio, d.uf, d.telefone, depois.email, d.cond_pagto,
-          centavos(d.limite_credito), d.ativo ? 1 : 0, base.agoraIso(ctx), atual.id, atual.versao);
+          centavos(d.limite_credito), d.ativo ? 1 : 0, vendedor, base.agoraIso(ctx), atual.id, atual.versao);
       if (r.changes !== 1) throw erro.conflito('O registro foi alterado por outro usuário. Recarregue e tente novamente.');
       base.auditar(ctx, 'CLIENTE', atual.id, 'ALTERACAO', dif);
       return obter(ctx, id);
@@ -174,7 +219,7 @@ function alterar(ctx, id, dados) {
 // pois há pedidos e títulos que o referenciam.
 function definirAtivo(ctx, id, ativo, versao) {
   return transacao(ctx.db, () => {
-    const atual = obterLinha(ctx, id);
+    const atual = obterVisivel(ctx, id);
     base.exigirVersao(versao, atual.versao);
     if (!!atual.ativo === ativo) throw erro.regra(ativo ? 'Cliente já está ativo.' : 'Cliente já está inativo.');
     ctx.db.prepare('UPDATE clientes SET ativo = ?, versao = versao + 1, atualizado_em = ? WHERE id = ?')
@@ -185,16 +230,21 @@ function definirAtivo(ctx, id, ativo, versao) {
 }
 
 function historico(ctx, id) {
-  obterLinha(ctx, id);
+  obterVisivel(ctx, id);
+  const credito = base.pode(ctx, 'clientes.credito');
   return ctx.db.prepare(`SELECT acao, usuario, data_hora, detalhes FROM auditoria
                          WHERE entidade = 'CLIENTE' AND entidade_id = ? ORDER BY id DESC LIMIT 100`)
-    .all(Number(id)).map((h) => ({ ...h, detalhes: JSON.parse(h.detalhes) }));
+    .all(Number(id)).map((h) => {
+      const detalhes = JSON.parse(h.detalhes);
+      if (!credito) delete detalhes.limite_credito; // histórico não revela o limite a quem não pode vê-lo
+      return { ...h, detalhes };
+    });
 }
 
 function condicoesPagamento(ctx) {
   return ctx.db.prepare('SELECT codigo, descricao, dias FROM condicoes_pagamento ORDER BY codigo').all();
 }
 
-module.exports = { listar, obter, obterLinha, incluir, alterar, definirAtivo, historico, creditoUtilizadoCent, condicoesPagamento };
+module.exports = { listar, obter, obterLinha, visivel, incluir, alterar, definirAtivo, historico, creditoUtilizadoCent, condicoesPagamento, vendedores };
 
 

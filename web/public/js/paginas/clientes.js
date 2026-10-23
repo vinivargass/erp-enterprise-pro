@@ -1,7 +1,7 @@
 import { get, post, put } from '../api.js';
 import {
   h, cabecalho, tabelaRemota, formulario, modal, confirmar, toast, toastErro, moeda, documento, dataHora, selo, atrasar,
-  mascaraDocumento, mascaraCep, mascaraTelefone, cpfValido, cnpjValido, carregando, falha,
+  mascaraDocumento, mascaraCep, mascaraTelefone, cpfValido, cnpjValido, carregando, falha, acoesLinha,
 } from '../ui.js';
 
 const UFS = 'AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO'.split(' ');
@@ -16,6 +16,11 @@ export async function render(ctx) {
   const condicoes = await get('/api/condicoes-pagamento');
   const podeGravar = ctx.pode('clientes.gravar');
   const podeInativar = ctx.pode('clientes.inativar');
+  // Crédito e carteira são dados sensíveis: o servidor nem envia sem permissão; aqui só não desenha.
+  const podeCredito = ctx.pode('clientes.credito');
+  const podeCarteira = ctx.pode('clientes.carteira');
+  const vendedores = podeCarteira ? await get('/api/vendedores') : [];
+  const nomeVendedor = (login) => (login ? (vendedores.find((v) => v.login === login) || {}).nome || login : '—');
 
   const tabela = tabelaRemota({
     estado,
@@ -26,15 +31,17 @@ export async function render(ctx) {
       { chave: 'razao_social', titulo: 'Razão social', ordenavel: true, quebra: true, render: (c) => h('div', {}, h('strong', {}, c.razao_social), h('div', { class: 'muted' }, c.nome_fantasia)) },
       { chave: 'documento', titulo: 'CPF/CNPJ', render: (c) => documento(c.documento) },
       { chave: 'municipio', titulo: 'Município/UF', ordenavel: true, render: (c) => `${c.municipio}/${c.uf}` },
-      { chave: 'limite_credito', titulo: 'Limite de crédito', ordenavel: true, num: true, render: (c) => moeda(c.limite_credito) },
+      podeCredito ? { chave: 'limite_credito', titulo: 'Limite de crédito', ordenavel: true, num: true, render: (c) => moeda(c.limite_credito) } : null,
+      podeCarteira ? { chave: 'vendedor', titulo: 'Vendedor', render: (c) => nomeVendedor(c.vendedor) } : null,
       { chave: 'ativo', titulo: 'Status', render: (c) => (c.ativo ? selo('Ativo', 'ok') : selo('Inativo', 'neutro')) },
-      { chave: 'acoes', titulo: 'Ações', render: (c) => h('div', { class: 'acoes-linha' },
-        h('button', { class: 'btn btn-pequeno', onclick: () => abrirFicha(c.id) }, 'Consultar'),
-        podeGravar ? h('button', { class: 'btn btn-pequeno', onclick: () => abrirForm(c.id) }, 'Editar') : null,
-        podeInativar ? (c.ativo
-          ? h('button', { class: 'btn btn-pequeno btn-perigo', onclick: () => alternarAtivo(c, false) }, 'Inativar')
-          : h('button', { class: 'btn btn-pequeno', onclick: () => alternarAtivo(c, true) }, 'Reativar')) : null) },
-    ],
+      { chave: 'acoes', titulo: 'Ações', render: (c) => acoesLinha(
+        h('button', { class: 'btn btn-pequeno', onclick: () => abrirFicha(c.id) }, 'Consultar'), [
+          podeGravar ? { rotulo: 'Editar', acao: () => abrirForm(c.id) } : null,
+          podeInativar ? (c.ativo
+            ? { rotulo: 'Inativar', perigo: true, acao: () => alternarAtivo(c, false) }
+            : { rotulo: 'Reativar', sensivel: true, acao: () => alternarAtivo(c, true) }) : null,
+        ]) },
+    ].filter(Boolean),
   });
 
   async function alternarAtivo(c, ativo) {
@@ -68,8 +75,9 @@ export async function render(ctx) {
             h('div', {}, `${c.logradouro}, ${c.numero}${c.complemento ? ' - ' + c.complemento : ''} · ${c.bairro} · ${c.municipio}/${c.uf} · CEP ${mascaraCep(c.cep)}`)),
           linha('Telefone', c.telefone), linha('E-mail', c.email),
           linha('Condição de pagamento', (condicoes.find((x) => x.codigo === c.cond_pagto) || {}).descricao),
-          linha('Limite de crédito', moeda(c.limite_credito)), linha('Crédito comprometido', moeda(c.credito_utilizado)),
-          linha('Crédito disponível', h('strong', { style: c.credito_disponivel < 0 ? 'color:var(--erro)' : '' }, moeda(c.credito_disponivel)))),
+          podeCarteira ? linha('Vendedor', nomeVendedor(c.vendedor)) : null,
+          ...(!podeCredito ? [] : [linha('Limite de crédito', moeda(c.limite_credito)), linha('Crédito comprometido', moeda(c.credito_utilizado)),
+          linha('Crédito disponível', h('strong', { style: c.credito_disponivel < 0 ? 'color:var(--erro)' : '' }, moeda(c.credito_disponivel)))])),
         h('h2', { style: 'margin-top:18px' }, 'Histórico de alterações'),
         hist.length ? h('ul', { class: 'linha-tempo' }, hist.map((x) => h('li', {},
           h('div', {}, h('strong', {}, x.acao), ` · ${x.usuario} · `, h('span', { class: 'muted' }, dataHora(x.data_hora))),
@@ -88,7 +96,7 @@ export async function render(ctx) {
       { nome: 'tipo_pessoa', rotulo: 'Tipo de pessoa', tipo: 'select', obrigatorio: true, col: 'c2', vazio: false, opcoes: [['J', 'Jurídica'], ['F', 'Física']] },
       { nome: 'documento', rotulo: 'CPF/CNPJ', obrigatorio: true, col: 'c3', atributos: { inputmode: 'numeric', autocomplete: 'off' } },
       { nome: 'inscricao_estadual', rotulo: 'Inscrição estadual', col: 'c3', ajuda: 'Números ou ISENTO' },
-      { nome: 'ativo', rotulo: 'Status', tipo: 'select', col: 'c2', vazio: false, opcoes: [['true', 'Ativo'], ['false', 'Inativo']] },
+      podeInativar ? { nome: 'ativo', rotulo: 'Status', tipo: 'select', col: 'c2', vazio: false, opcoes: [['true', 'Ativo'], ['false', 'Inativo']] } : null,
       { nome: 'razao_social', rotulo: 'Nome / razão social', obrigatorio: true, col: 'c8', atributos: { maxlength: 80 } },
       { nome: 'nome_fantasia', rotulo: 'Nome fantasia', obrigatorio: true, atributos: { maxlength: 40 } },
       { secao: 'Endereço' },
@@ -103,8 +111,10 @@ export async function render(ctx) {
       { nome: 'telefone', rotulo: 'Telefone', col: 'c3', mascara: mascaraTelefone, atributos: { inputmode: 'tel' } },
       { nome: 'email', rotulo: 'E-mail', tipo: 'email', col: 'c3', atributos: { maxlength: 120 } },
       { nome: 'cond_pagto', rotulo: 'Condição de pagamento', tipo: 'select', obrigatorio: true, col: 'c3', opcoes: condicoes.map((c) => [c.codigo, `${c.codigo} - ${c.descricao}`]) },
-      { nome: 'limite_credito', rotulo: 'Limite de crédito (R$)', tipo: 'number', obrigatorio: true, col: 'c3', atributos: { min: 0, step: '0.01' } },
-    ], { ...atual, ativo: String(atual.ativo ?? true), documento: atual.documento ? mascaraDocumento(atual.documento, tipoInicial) : '', telefone: atual.telefone ? mascaraTelefone(atual.telefone) : '' });
+      // limite e carteira: só quem gerencia a carteira (gerente/admin); o vendedor cadastra na própria carteira
+      podeCarteira ? { nome: 'limite_credito', rotulo: 'Limite de crédito (R$)', tipo: 'number', obrigatorio: true, col: 'c3', atributos: { min: 0, step: '0.01' } } : null,
+      podeCarteira ? { nome: 'vendedor', rotulo: 'Vendedor responsável', tipo: 'select', col: 'c3', vazio: 'Sem vendedor', opcoes: vendedores.map((x) => [x.login, x.nome]), ajuda: 'Carteira do vendedor' } : null,
+    ].filter(Boolean), { ...atual, vendedor: atual.vendedor || '', ativo: String(atual.ativo ?? true), documento: atual.documento ? mascaraDocumento(atual.documento, tipoInicial) : '', telefone: atual.telefone ? mascaraTelefone(atual.telefone) : '' });
 
     const tipo = f.campo('tipo_pessoa');
     const doc = f.campo('documento');
@@ -125,6 +135,8 @@ export async function render(ctx) {
       if (v.documento && !valido) erros.documento = v.tipo_pessoa === 'F' ? 'CPF inválido.' : 'CNPJ inválido.';
       if (f.erros(erros)) { msg.textContent = 'Corrija os campos destacados.'; return; }
       const corpo = { ...v, ativo: v.ativo === 'true', limite_credito: v.limite_credito === '' ? '' : Number(v.limite_credito) };
+      if (!podeInativar) delete corpo.ativo;
+      if (!podeCarteira) { delete corpo.limite_credito; delete corpo.vendedor; } else corpo.vendedor = v.vendedor || null;
       delete corpo.codigo;
       salvar.disabled = true;
       try {
@@ -147,7 +159,7 @@ export async function render(ctx) {
 
   tabela.atualizar();
   return h('div', {},
-    cabecalho('Clientes', 'Cadastro de clientes · equivalente Protheus: SA1 (rotina padrão CRMA980/MATA030 + ZERPCLI.PRW)',
+    cabecalho('Clientes', 'Gerencie os dados e a situação dos seus clientes.',
       podeGravar ? h('button', { class: 'btn btn-primario', onclick: () => abrirForm() }, '+ Novo cliente') : null),
     h('div', { class: 'filtros', role: 'search' },
       h('label', {}, 'Pesquisa', busca),

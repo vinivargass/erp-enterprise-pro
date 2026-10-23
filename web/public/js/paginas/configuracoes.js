@@ -29,7 +29,7 @@ export async function render(ctx) {
   const podeUsuarios = ctx.pode('usuarios.gerir');
 
   return h('div', {},
-    cabecalho('Parâmetros e auditoria', 'Parâmetros equivalentes a MV_* do SX6 (na versão Protheus: ZZ_* criados no Configurador)'),
+    cabecalho('Parâmetros e auditoria', 'Ajuste as regras de negócio do sistema e consulte o registro de alterações.'),
     h('section', { class: 'cartao' }, h('h2', {}, 'Parâmetros de negócio'),
       tabela([
         { chave: 'chave', titulo: 'Parâmetro', render: (p) => h('code', {}, p.chave) },

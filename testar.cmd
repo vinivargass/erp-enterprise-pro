@@ -4,7 +4,7 @@ setlocal
 cd /d "%~dp0web"
 where node >nul 2>nul
 if %errorlevel%==0 (
-  node --test --test-reporter=spec tests\erp.test.js tests\admin.test.js tests\publico.test.js
+  node --test --test-reporter=spec tests\erp.test.js tests\admin.test.js tests\publico.test.js tests\inicio.test.js tests\permissoes.test.js
   goto :fim
 )
 set "VSCODE=%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe"
@@ -13,6 +13,6 @@ if not exist "%VSCODE%" (
   exit /b 1
 )
 set ELECTRON_RUN_AS_NODE=1
-"%VSCODE%" --test --test-reporter=spec tests\erp.test.js tests\admin.test.js tests\publico.test.js
+"%VSCODE%" --test --test-reporter=spec tests\erp.test.js tests\admin.test.js tests\publico.test.js tests\inicio.test.js tests\permissoes.test.js
 :fim
 endlocal

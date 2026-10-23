@@ -3,7 +3,7 @@
 // CPFs/CNPJs são gerados matematicamente válidos a partir de bases arbitrárias; não pertencem
 // a pessoas ou empresas reais conhecidas. O histórico é criado pelos próprios serviços
 // (com relógio simulado), então saldos, títulos e indicadores são consistentes entre si.
-const { hashSenha } = require('./auth');
+const { hashSenha, permissoesEfetivas } = require('./auth');
 const base = require('./services/base');
 const clientes = require('./services/clientes');
 const produtos = require('./services/produtos');
@@ -44,11 +44,11 @@ function popular(db, agoraReal = () => new Date()) {
   let relogio = new Date(agoraReal());
   const ctxDe = (login) => {
     const u = db.prepare('SELECT * FROM usuarios WHERE login = ?').get(login);
-    return { db, usuario: { id: u.id, login: u.login, perfil: u.perfil }, agora: () => relogio };
+    return { db, usuario: { id: u.id, login: u.login, perfil: u.perfil, permissoes: permissoesEfetivas(u.perfil, []) }, agora: () => relogio };
   };
 
   const usuarios = [
-    ['admin', 'Administrador Demo', 'ADMIN'], ['gerente', 'Gerente Comercial Demo', 'GERENTE'],
+    ['admin', 'Administrador Demo', 'ADMIN'], ['diretoria', 'Diretora Demo', 'DIRETORIA'], ['gerente', 'Gerente Comercial Demo', 'GERENTE'],
     ['vendedor', 'Vendedor Demo', 'VENDEDOR'], ['estoque', 'Almoxarife Demo', 'ESTOQUE'],
     ['financeiro', 'Analista Financeiro Demo', 'FINANCEIRO'], ['consulta', 'Auditor Somente Leitura', 'CONSULTA'],
   ];
@@ -99,6 +99,7 @@ function popular(db, agoraReal = () => new Date()) {
     cep: String(10000000 + i * 1234567).slice(0, 8), logradouro: `Rua Demonstração ${i + 1}`, numero: String(100 + i * 7),
     bairro: 'Centro', municipio: mun, uf, telefone: `(11) 3000-${String(1000 + i).slice(-4)}`,
     email: `contato${i + 1}@exemplo.com.br`, cond_pagto: conds[i], limite_credito: lim,
+    vendedor: i < 11 ? 'vendedor' : null, // carteira do vendedor demo (o último cliente fica sem vendedor)
   }).id);
 
   const dadosProdutos = [
@@ -153,8 +154,8 @@ function popular(db, agoraReal = () => new Date()) {
         r = rnd() < 0.85 ? pedidos.aprovar(ger(), r.id, r.versao, 'Aprovação demonstrativa') : pedidos.rejeitar(ger(), r.id, r.versao, 'Condição comercial não aceita');
       }
       if (r.status === 'APROVADO') {
-        if (rnd() < 0.06) pedidos.cancelar(vend(), r.id, r.versao, 'Cliente desistiu da compra');
-        else pedidos.faturar(ger(), r.id, r.versao);
+        if (rnd() < 0.06) pedidos.cancelar(ger(), r.id, r.versao, 'Cliente desistiu da compra');
+        else pedidos.faturar(admin, r.id, r.versao); // por padrão só o Admin fatura
       }
     } catch (e) {
       if (!e.status) throw e; // erros de regra (ex.: estoque) apenas deixam o pedido em rascunho

@@ -67,7 +67,7 @@ function listar(ctx, query = {}) {
   const pag = base.paginar(ctx, query);
   const total = ctx.db.prepare(`SELECT COUNT(*) n FROM produtos ${where}`).get(...a).n;
   const itens = ctx.db.prepare(`SELECT * FROM produtos ${where} ORDER BY ${ordem} LIMIT ? OFFSET ?`)
-    .all(...a, pag.tamanho, pag.offset).map(paraApi);
+    .all(...a, pag.tamanho, pag.offset).map((r) => semCusto(ctx, paraApi(r)));
   return { itens, total, pagina: pag.pagina, tamanho: pag.tamanho };
 }
 
@@ -76,7 +76,9 @@ function obterLinha(ctx, id) {
   if (!r) throw erro.naoEncontrado('Produto não encontrado.');
   return r;
 }
-const obter = (ctx, id) => paraApi(obterLinha(ctx, id));
+// Custo só vai para o navegador de quem tem 'produtos.custo' (vendedor, estoque e consulta não recebem).
+const semCusto = (ctx, p) => { if (base.pode(ctx, 'produtos.custo')) return p; const { custo, ...resto } = p; return resto; };
+const obter = (ctx, id) => semCusto(ctx, paraApi(obterLinha(ctx, id)));
 
 function grupos(ctx) {
   return ctx.db.prepare('SELECT DISTINCT grupo FROM produtos ORDER BY grupo').all().map((r) => r.grupo);

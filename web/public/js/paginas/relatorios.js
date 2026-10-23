@@ -4,11 +4,17 @@ import { h, cabecalho, tabela, moeda, numero, data, dataHora, carregando, falha,
 const ROT_FILTRO = { de: 'Data inicial', ate: 'Data final', cliente_id: 'Cliente', produto_id: 'Produto', status: 'Status do pedido', situacao: 'Situação', tipo: 'Tipo' };
 
 export async function render(ctx) {
+  // O catálogo vem filtrado pelo servidor (só relatórios cujos dados o perfil pode ler).
+  // As listas de filtro só são buscadas quando o perfil pode ler clientes/produtos.
+  const vazio = { itens: [] };
   const [catalogo, clientes, produtos] = await Promise.all([
     get('/api/relatorios'),
-    get('/api/clientes', { tamanho: 100, status: '', ordem: 'razao_social' }),
-    get('/api/produtos', { tamanho: 100, status: '' }),
+    ctx.pode('clientes.ler') ? get('/api/clientes', { tamanho: 100, status: '', ordem: 'razao_social' }) : vazio,
+    ctx.pode('produtos.ler') ? get('/api/produtos', { tamanho: 100, status: '' }) : vazio,
   ]);
+  if (!catalogo.length) {
+    return h('div', {}, cabecalho('Relatórios', ''), h('div', { class: 'estado' }, 'Nenhum relatório disponível para o seu perfil.'));
+  }
   let atual = catalogo.find((r) => r.id === ctx.query.r) || catalogo[0];
   const filtrosEl = h('div', { class: 'filtros' });
   const resultado = h('div');
@@ -28,6 +34,7 @@ export async function render(ctx) {
       situacao: [['ABERTO', 'Aberto'], ['PARCIAL', 'Parcial'], ['LIQUIDADO', 'Liquidado']],
       tipo: [['E', 'Entradas'], ['S', 'Saídas']],
     }[f];
+    if (!opcoes.length && (f === 'cliente_id' || f === 'produto_id')) return null; // sem permissão para a lista: filtro some
     return h('select', { onchange: set }, h('option', { value: '' }, 'Todos'), opcoes.map(([v, t]) => h('option', { value: v, selected: String(valores[f]) === String(v) }, t)));
   }
 
@@ -36,7 +43,7 @@ export async function render(ctx) {
     filtrosEl.replaceChildren(
       h('label', {}, 'Relatório', h('select', { onchange: (ev) => { atual = catalogo.find((r) => r.id === ev.target.value); montarFiltros(); resultado.replaceChildren(); } },
         catalogo.map((r) => h('option', { value: r.id, selected: r.id === atual.id }, r.titulo)))),
-      ...atual.filtros.map((f) => h('label', {}, ROT_FILTRO[f], controle(f))),
+      ...atual.filtros.map((f) => { const c = controle(f); return c ? h('label', {}, ROT_FILTRO[f], c) : null; }).filter(Boolean), // replaceChildren escreveria "null"
       h('button', { class: 'btn btn-primario', onclick: executar }, 'Gerar'),
       h('button', { class: 'btn', onclick: exportar }, 'Exportar CSV'));
   }
@@ -64,6 +71,6 @@ export async function render(ctx) {
   montarFiltros();
   if (ctx.query.r) executar();
   return h('div', {},
-    cabecalho('Relatórios', 'Equivalente Protheus: TReport + BeginSql (ZERPREL.PRW). Exportação CSV compatível com Excel pt-BR.'),
+    cabecalho('Relatórios', 'Consulte os resultados e exporte as informações em CSV, compatível com o Excel.'),
     h('section', { class: 'cartao' }, filtrosEl, resultado));
 }

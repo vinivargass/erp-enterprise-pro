@@ -1,8 +1,8 @@
 import { get } from '../api.js';
-import { h, s, cabecalho, moeda, moedaCurta, numero, dataHora, data, rotuloStatus, seloPedido, hojeIso } from '../ui.js';
+import { h, s, cabecalho, moeda, moedaCurta, numero, dataHora, data, rotuloStatus, seloPedido, hojeIso, acessoNegado } from '../ui.js';
 import { linha } from '../grafico.js';
+import { MESES } from '../idioma.js';
 
-const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const ACOES = {
   INCLUSAO: 'incluiu', ALTERACAO: 'alterou', INATIVACAO: 'inativou', REATIVACAO: 'reativou', EXCLUSAO: 'excluiu',
   ENTRADA: 'registrou entrada em', SAIDA: 'registrou saída em', LIQUIDACAO: 'liquidou', LOGIN: 'entrou no sistema',
@@ -47,23 +47,35 @@ const valorMoeda = (v) => {
   return h('span', { class: 'vg-num' }, h('small', { class: 'vg-moeda' }, 'R$'), txt);
 };
 
+// Painel executivo: resultados estratégicos, somente com a permissão 'painel_executivo.ler'.
+// Sem ela a tela nem consulta o servidor; e o servidor também nega (403) quem chamar a API direto.
+const RESTRITO = 'Os resultados estratégicos são restritos à alta gestão. Peça acesso ao administrador.';
+
 export async function render(ctx) {
+  if (!ctx.pode('painel_executivo.ler')) return acessoNegado(RESTRITO);
   const raiz = h('div', { class: 'visao-geral' });
   const opcoes = periodos();
-  const r = await get('/api/dashboard', { de: ctx.query.de, ate: ctx.query.ate });
+  let r;
+  try {
+    r = await get('/api/painel-executivo', { de: ctx.query.de, ate: ctx.query.ate });
+  } catch (e) {
+    if (e.status === 403 || e.status === 401) return acessoNegado(RESTRITO); // na dúvida, nega
+    throw e;
+  }
   const k = r.indicadores;
   // Tolera resposta de servidor mais antigo (sem os campos novos da visão geral).
-  r.por_grupo = r.por_grupo || []; r.evolucao = r.evolucao || []; r.alertas = r.alertas || []; r.atividades = r.atividades || [];
+  r.por_grupo = r.por_grupo || []; r.evolucao = r.evolucao || []; r.alertas = r.alertas || [];
+  // atividades = null quando o usuário não pode ver a auditoria: o bloco não é exibido.
   if (r.pedidos_recentes === undefined) r.pedidos_recentes = null;
   const atual = Object.keys(opcoes).find((c) => opcoes[c][1] === r.periodo.de && opcoes[c][2] === r.periodo.ate) || 'personalizado';
 
   // Controle de período: atalhos + datas livres.
   const de = h('input', { type: 'date', value: r.periodo.de, 'aria-label': 'Data inicial' });
   const ate = h('input', { type: 'date', value: r.periodo.ate, 'aria-label': 'Data final' });
-  const aplicar = () => { if (de.value && ate.value) ctx.navegar(`#/dashboard?de=${de.value}&ate=${ate.value}`); };
+  const aplicar = () => { if (de.value && ate.value) ctx.navegar(`#/painel-executivo?de=${de.value}&ate=${ate.value}`); };
   const atalho = h('select', { 'aria-label': 'Período', onchange: (ev) => {
     const o = opcoes[ev.target.value];
-    if (o) ctx.navegar(`#/dashboard?de=${o[1]}&ate=${o[2]}`); else de.focus();
+    if (o) ctx.navegar(`#/painel-executivo?de=${o[1]}&ate=${o[2]}`); else de.focus();
   } }, ...Object.entries(opcoes).map(([c, [rot]]) => h('option', { value: c, selected: c === atual }, rot)),
   h('option', { value: 'personalizado', selected: atual === 'personalizado' }, 'Personalizado'));
   const periodo = h('div', { class: 'vg-periodo' },
@@ -125,16 +137,16 @@ export async function render(ctx) {
     r.alertas.length ? h('ul', { class: 'lista-simples' }, r.alertas.map((a) => h('li', {},
       h('span', { class: `ic-nivel ${a.nivel}`, 'aria-label': a.nivel === 'critico' ? 'Crítico' : 'Atenção' }, a.nivel === 'critico' ? '✕' : '!'),
       h('a', { href: a.rota }, a.texto)))) : h('p', { class: 'muted' }, 'Nenhum alerta.'));
-  const atividades = h('section', { class: 'vg-bloco', 'aria-labelledby': 'vg-at' },
+  const atividades = r.atividades ? h('section', { class: 'vg-bloco', 'aria-labelledby': 'vg-at' },
     h('div', { class: 'vg-bloco-cab' }, h('h2', { id: 'vg-at' }, 'Atividades recentes')),
     r.atividades.length ? h('ul', { class: 'lista-simples' }, r.atividades.map((a) => h('li', {}, h('span', {}, descreverAtividade(a)), h('span', { class: 'quando' }, dataHora(a.data_hora)))))
-      : h('p', { class: 'muted' }, 'Nenhuma atividade.'));
+      : h('p', { class: 'muted' }, 'Nenhuma atividade.')) : null;
 
   raiz.append(
-    cabecalho('Visão geral', `Acompanhe os principais indicadores do seu negócio · ${data(r.periodo.de)} a ${data(r.periodo.ate)}`, periodo),
+    cabecalho('Painel executivo', `Resultados estratégicos do negócio · ${data(r.periodo.de)} a ${data(r.periodo.ate)}`, periodo),
     linhaKpi, secundarios,
     h('div', { class: 'vg-duas' }, graficoMensal, categorias),
-    recentes,
-    h('div', { class: 'vg-duas vg-duas-igual' }, alertas, atividades));
+    recentes || '',
+    atividades ? h('div', { class: 'vg-duas vg-duas-igual' }, alertas, atividades) : alertas);
   return raiz;
 }

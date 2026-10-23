@@ -1,5 +1,5 @@
-import { get, post } from '../api.js';
-import { h, cabecalho, tabelaRemota, tabela, formulario, modal, toast, toastErro, moeda, data, dataHora, seloTitulo, atrasar, hojeIso, carregando, falha } from '../ui.js';
+import { get, post, put } from '../api.js';
+import { h, cabecalho, tabelaRemota, tabela, formulario, modal, toast, toastErro, moeda, data, dataHora, seloTitulo, atrasar, hojeIso, carregando, falha, acoesLinha } from '../ui.js';
 
 export async function render(ctx) {
   const tipo = ctx.params[0]; // receber | pagar
@@ -7,6 +7,7 @@ export async function render(ctx) {
   ctx.migalhas(['Financeiro', receber ? 'Contas a receber' : 'Contas a pagar']);
   const estado = { situacao: ctx.query.situacao || 'ABERTO', venc_de: '', venc_ate: '', q: '', ordem: 'vencimento', direcao: 'asc', pagina: 1 };
   const podeLiquidar = ctx.pode('financeiro.liquidar');
+  const podeEditar = ctx.pode('financeiro.editar');
 
   const t = tabelaRemota({
     estado,
@@ -21,9 +22,17 @@ export async function render(ctx) {
       { chave: 'saldo', titulo: 'Saldo em aberto', ordenavel: true, num: true, render: (x) => moeda(x.saldo) },
       { chave: 'situacao', titulo: 'Situação', render: seloTitulo },
       { chave: 'data_liquidacao', titulo: 'Liquidação', render: (x) => data(x.data_liquidacao) },
-      { chave: 'acoes', titulo: 'Ações', render: (x) => h('div', { class: 'acoes-linha' },
-        h('button', { class: 'btn btn-pequeno', onclick: () => detalhar(x.id) }, 'Consultar'),
-        podeLiquidar && x.situacao !== 'LIQUIDADO' ? h('button', { class: 'btn btn-pequeno btn-primario', onclick: () => liquidar(x) }, 'Liquidar') : null) },
+      // Principal: registrar a baixa (quem pode liquidar, título em aberto); senão, consultar.
+      { chave: 'acoes', titulo: 'Ações', render: (x) => {
+        const aberto = x.situacao !== 'LIQUIDADO';
+        const registrar = podeLiquidar && aberto;
+        return acoesLinha(registrar
+          ? h('button', { class: 'btn btn-pequeno btn-primario', onclick: () => liquidar(x) }, receber ? 'Registrar recebimento' : 'Registrar pagamento')
+          : h('button', { class: 'btn btn-pequeno', onclick: () => detalhar(x.id) }, 'Consultar'), [
+          registrar ? { rotulo: 'Consultar', acao: () => detalhar(x.id) } : null,
+          podeEditar && aberto ? { rotulo: 'Ajustar vencimento e observação', sensivel: true, acao: () => editar(x) } : null,
+        ]);
+      } },
     ],
   });
 
@@ -52,9 +61,9 @@ export async function render(ctx) {
     ], { valor: x.saldo, data: hojeIso() });
     const msg = h('p', { class: 'erro-form', role: 'alert' });
     const chave = crypto.randomUUID(); // mesma chave em reenvios: impede baixa duplicada
-    const ok = h('button', { class: 'btn btn-primario', onclick: gravar }, 'Confirmar liquidação');
+    const ok = h('button', { class: 'btn btn-primario', onclick: gravar }, receber ? 'Confirmar recebimento' : 'Confirmar pagamento');
     const m = modal({
-      titulo: `Liquidar título ${x.numero}${x.parcela ? '/' + x.parcela : ''}`, tamanho: 'pequeno',
+      titulo: `${receber ? 'Registrar recebimento' : 'Registrar pagamento'} · título ${x.numero}${x.parcela ? '/' + x.parcela : ''}`, tamanho: 'pequeno',
       corpo: h('div', {}, h('p', { style: 'margin-top:0' }, `${x.participante} · saldo em aberto ${moeda(x.saldo)}`), f.el,
         h('p', { class: 'muted' }, 'Liquidação demonstrativa: não movimenta banco nem gera documento oficial. Valor menor que o saldo gera baixa parcial.'), msg),
       rodape: [h('button', { class: 'btn', onclick: () => m.fechar() }, 'Cancelar'), ok],
@@ -75,6 +84,35 @@ export async function render(ctx) {
     }
   }
 
+  // Ajuste de título em aberto: só vencimento e observação (valor e saldo nunca mudam aqui).
+  function editar(x) {
+    const f = formulario([
+      { nome: 'vencimento', rotulo: 'Vencimento', tipo: 'date', obrigatorio: true, col: 'c6', atributos: { min: x.emissao } },
+      { nome: 'historico', rotulo: 'Observação', col: 'c12', atributos: { maxlength: 250 } },
+    ], { vencimento: x.vencimento, historico: x.historico || '' });
+    const msg = h('p', { class: 'erro-form', role: 'alert' });
+    const ok = h('button', { class: 'btn btn-primario', onclick: gravar }, 'Salvar ajuste');
+    const m = modal({
+      titulo: `Ajustar título ${x.numero}${x.parcela ? '/' + x.parcela : ''}`, tamanho: 'pequeno',
+      corpo: h('div', {}, h('p', { style: 'margin-top:0' }, `${x.participante} · valor ${moeda(x.valor)} · saldo ${moeda(x.saldo)}`), f.el,
+        h('p', { class: 'muted' }, 'O ajuste fica registrado na auditoria (antes e depois). Valor e saldo não podem ser alterados.'), msg),
+      rodape: [h('button', { class: 'btn', onclick: () => m.fechar() }, 'Cancelar'), ok],
+    });
+    async function gravar() {
+      msg.textContent = '';
+      const v = f.valores();
+      const e = f.validarObrigatorios();
+      if (v.vencimento && v.vencimento < x.emissao) e.vencimento = 'Anterior à emissão.';
+      if (f.erros(e)) return;
+      ok.disabled = true;
+      try {
+        const r = await put(`/api/financeiro/titulos/${x.id}`, { ...v, versao: x.versao });
+        toast(`Título ${r.numero} ajustado.`);
+        m.fechar(); t.atualizar(); ctx.atualizarNotificacoes();
+      } catch (err) { if (err.detalhes) f.erros(err.detalhes); msg.textContent = err.message; if (err.status === 409) t.atualizar(); } finally { ok.disabled = false; }
+    }
+  }
+
   const recarregar = () => { estado.pagina = 1; t.atualizar(); };
   const busca = h('input', { type: 'search', placeholder: 'Título ou nome…', 'aria-label': 'Pesquisar títulos' });
   busca.addEventListener('input', atrasar(() => { estado.q = busca.value; recarregar(); }));
@@ -82,7 +120,7 @@ export async function render(ctx) {
   t.atualizar();
   return h('div', {},
     cabecalho(receber ? 'Contas a receber' : 'Contas a pagar',
-      `Financeiro demonstrativo · equivalente Protheus: ${receber ? 'SE1 / baixa FINA070' : 'SE2 / baixa FINA080'} — ZERPFIN.PRW · sem integração bancária`),
+      `${receber ? 'Acompanhe os recebimentos e os valores em aberto.' : 'Organize pagamentos e acompanhe os vencimentos.'} Financeiro demonstrativo, sem integração bancária.`),
     h('div', { class: 'abas' },
       h('a', { href: '#/financeiro/receber', 'aria-current': receber ? 'page' : null }, 'Contas a receber'),
       h('a', { href: '#/financeiro/pagar', 'aria-current': receber ? null : 'page' }, 'Contas a pagar')),

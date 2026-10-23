@@ -1,11 +1,16 @@
 // Inicialização: login, layout (menu, cabeçalho, notificações), roteamento por hash.
+// idioma.js vem primeiro: em inglês, ele já traduz a página antes de qualquer tela aparecer.
+import { IDIOMAS, idioma, definirIdioma, traduzir } from './idioma.js';
 import { api, get, post, definirCsrf, quandoSessaoExpirar } from './api.js';
 import { h, s, toast, falha, carregando } from './ui.js';
-import * as dashboard from './paginas/dashboard.js';
+import * as inicio from './paginas/inicio.js';
+import * as ajuda from './paginas/ajuda.js';
+import * as painelExecutivo from './paginas/dashboard.js';
 import * as clientes from './paginas/clientes.js';
 import * as produtos from './paginas/produtos.js';
 import * as pedidos from './paginas/pedidos.js';
 import * as estoque from './paginas/estoque.js';
+import * as expedicao from './paginas/expedicao.js';
 import * as financeiro from './paginas/financeiro.js';
 import * as relatorios from './paginas/relatorios.js';
 import * as configuracoes from './paginas/configuracoes.js';
@@ -13,31 +18,12 @@ import * as adminPainel from './paginas/admin-painel.js';
 import * as adminUsuarios from './paginas/admin-usuarios.js';
 import * as adminExcluir from './paginas/admin-excluir.js';
 import { montarIlustracao } from './ilustracao-login.js';
-
-// Ícones de traço fino (estilo da referência)
-const icone = (d) => s('svg', { viewBox: '0 0 24 24', width: 20, height: 20, 'aria-hidden': 'true' },
-  s('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
-const MENU = [
-  { grupo: 'Visão geral' },
-  { rota: 'dashboard', rotulo: 'Visão geral', perm: 'dashboard.ler', ic: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z' },
-  { grupo: 'Cadastros' },
-  { rota: 'clientes', rotulo: 'Clientes', perm: 'clientes.ler', ic: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 20c.6-3.6 3.6-6 7.5-6s6.9 2.4 7.5 6' },
-  { rota: 'produtos', rotulo: 'Produtos', perm: 'produtos.ler', ic: 'M12 3 20 7.5v9L12 21l-8-4.5v-9zM12 12v9m0-9 8-4.5M12 12 4 7.5' },
-  { grupo: 'Operações' },
-  { rota: 'pedidos', rotulo: 'Pedidos de venda', perm: 'pedidos.ler', ic: 'M7 3h8l4 4v14H7zM15 3v4h4M10 11h6M10 15h6M10 19h3' },
-  { rota: 'estoque', rotulo: 'Estoque', perm: 'estoque.ler', ic: 'M3.5 8 12 3.8 20.5 8v8.6L12 21l-8.5-4.4zM3.5 8 12 12.4 20.5 8M12 12.4V21M7.8 5.9l8.5 4.4' },
-  { rota: 'financeiro/receber', rotulo: 'Contas a receber', perm: 'financeiro.ler', ic: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM14.6 9.3c-.4-.9-1.4-1.4-2.6-1.4-1.5 0-2.6.8-2.6 1.9s1 1.6 2.6 2 2.6.9 2.6 2-1.1 1.9-2.6 1.9c-1.3 0-2.3-.6-2.7-1.6M12 6.3v1.6m0 8.2v1.6' },
-  { rota: 'financeiro/pagar', rotulo: 'Contas a pagar', perm: 'financeiro.ler', ic: 'M4 7.5h15.5v11.5H5a1 1 0 0 1-1-1V6.2A1.7 1.7 0 0 1 5.7 4.5H17v3M15.5 13.2h1.5' },
-  { grupo: 'Gestão' },
-  { rota: 'relatorios', rotulo: 'Relatórios', perm: 'relatorios.ler', ic: 'M5 20v-7M10 20V6M15 20v-9M20 20V9M3 20h18' },
-  { rota: 'configuracoes', rotulo: 'Parâmetros e auditoria', perm: 'parametros.ler', ic: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.2 13.6l1.6 1.2-1.8 3.1-1.9-.7a7.6 7.6 0 0 1-1.8 1l-.3 2h-3.6l-.3-2a7.6 7.6 0 0 1-1.8-1l-1.9.7-1.8-3.1 1.6-1.2a7.4 7.4 0 0 1 0-2.2L3.2 9.2 5 6.1l1.9.7a7.6 7.6 0 0 1 1.8-1l.3-2h3.6l.3 2a7.6 7.6 0 0 1 1.8 1l1.9-.7 1.8 3.1-1.6 1.2a7.4 7.4 0 0 1 0 2.2z' },
-  { grupo: 'Administração' },
-  { rota: 'admin/painel', rotulo: 'Painel administrativo', perm: 'admin.painel', ic: 'M4 4v16h16M8 15l3.2-4 3 2.4L19 7.5' },
-  { rota: 'admin/usuarios', rotulo: 'Usuários e perfis', perm: 'usuarios.gerir', ic: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM3 20c.4-3 2.8-5 6-5s5.6 2 6 5M16 4.3a3.5 3.5 0 0 1 0 6.4M18 15.4c1.7.7 2.8 2.4 3 4.6' },
-];
+import { MENU, icone, liberado } from './modulos.js';
 
 const PAGINAS = [
-  [/^dashboard$/, dashboard.render, ['Visão geral']],
+  [/^inicio$/, inicio.render, []],
+  [/^ajuda$/, ajuda.render, ['Ajuda']],
+  [/^painel-executivo$/, painelExecutivo.render, ['Gestão', 'Painel executivo']],
   [/^clientes$/, clientes.render, ['Cadastros', 'Clientes']],
   [/^produtos$/, produtos.render, ['Cadastros', 'Produtos']],
   [/^pedidos$/, pedidos.renderLista, ['Operações', 'Pedidos de venda']],
@@ -45,6 +31,8 @@ const PAGINAS = [
   [/^pedidos\/(\d+)$/, pedidos.renderDetalhe, ['Operações', ['Pedidos de venda', '#/pedidos'], 'Pedido']],
   [/^pedidos\/(\d+)\/editar$/, pedidos.renderEdicao, ['Operações', ['Pedidos de venda', '#/pedidos'], 'Editar pedido']],
   [/^estoque$/, estoque.render, ['Operações', 'Estoque']],
+  [/^expedicao$/, expedicao.render, ['Operações', 'Expedição']],
+  [/^expedicao\/(\d+)$/,expedicao.renderDetalhe, ['Operações', ['Expedição', '#/expedicao'], 'Separação']],
   [/^financeiro\/(receber|pagar)$/, financeiro.render, ['Financeiro']],
   [/^relatorios$/, relatorios.render, ['Gestão', 'Relatórios']],
   [/^configuracoes$/, configuracoes.render, ['Gestão', 'Parâmetros e auditoria']],
@@ -58,6 +46,17 @@ const PAGINAS = [
 let usuario = null;
 const $ = (id) => document.getElementById(id);
 
+// Saída da página atual: uma tela com alteração não salva (ex.: anotação) registra `podeSair`, que pode pedir
+// confirmação; `desmontar` limpa o que a tela deixou ligado (ex.: aviso do navegador ao fechar a aba).
+let saidaDaPagina = null;
+let rotaAtual = '';
+async function podeSairDaPagina() {
+  if (!saidaDaPagina) return true;
+  const ok = await saidaDaPagina.podeSair();
+  if (ok) { saidaDaPagina.desmontar?.(); saidaDaPagina = null; }
+  return ok;
+}
+
 function contexto(params, query) {
   return {
     usuario, params, query,
@@ -65,53 +64,73 @@ function contexto(params, query) {
     navegar: (rota) => { location.hash = rota; },
     migalhas: definirMigalhas,
     atualizarNotificacoes,
+    aoSair: (cfg) => { saidaDaPagina = cfg; },
   };
 }
 
 function definirMigalhas(itens) {
-  $('migalhas').replaceChildren(h('li', {}, h('a', { href: '#/dashboard' }, 'Início')),
+  $('migalhas').replaceChildren(h('li', {}, itens.length ? h('a', { href: '#/inicio' }, 'Início') : h('span', { 'aria-current': 'page' }, 'Início')),
     ...itens.map((it, i) => h('li', {}, Array.isArray(it) ? h('a', { href: it[1] }, it[0])
       : h('span', { 'aria-current': i === itens.length - 1 ? 'page' : null }, it))));
 }
 
+// Cada navegação (e cada entrada/saída de sessão) recebe um número. Uma tela que termina de carregar
+// depois que o usuário mudou de página ou saiu do sistema é descartada, nunca exibida.
+let navegacao = 0;
+
 async function rotear() {
+  if (!usuario) return;
+  // Alteração não salva na página atual: se a pessoa cancelar, volta ao endereço anterior sem trocar de tela.
+  if (location.hash !== rotaAtual && !(await podeSairDaPagina())) { history.replaceState(null, '', rotaAtual || '#/inicio'); return; }
+  rotaAtual = location.hash;
   // Trocar de página (menu, Voltar do navegador ou URL) fecha janelas modais que tenham ficado abertas.
   $('modal-raiz').replaceChildren();
-  if (!usuario) return;
-  const [caminho, qs] = (location.hash.replace(/^#\/?/, '') || 'dashboard').split('?');
+  const minha = ++navegacao;
+  const [caminho, qs] = (location.hash.replace(/^#\/?/, '') || 'inicio').split('?');
+  // Endereço antigo da "Visão geral": leva ao Início (o painel estratégico tem endereço próprio e permissão).
+  if (caminho === 'dashboard') { location.replace('#/inicio'); return; }
   const query = Object.fromEntries(new URLSearchParams(qs || ''));
   const alvo = PAGINAS.find(([re]) => re.test(caminho));
   const conteudo = $('conteudo');
-  for (const a of $('menu').querySelectorAll('a')) {
+  for (const a of document.querySelectorAll('#menu a, #menu-rodape a')) {
     a.toggleAttribute('aria-current', caminho === a.dataset.rota || caminho.startsWith(a.dataset.rota + '/'));
     if (a.hasAttribute('aria-current')) a.setAttribute('aria-current', 'page');
   }
   $('app').classList.remove('menu-aberto');
-  if (!alvo) { definirMigalhas(['Página não encontrada']); conteudo.replaceChildren(h('div', { class: 'estado' }, 'Página não encontrada. ', h('a', { href: '#/dashboard' }, 'Voltar ao início'))); return; }
+  if (!alvo) { definirMigalhas(['Página não encontrada']); conteudo.replaceChildren(h('div', { class: 'estado' }, 'Página não encontrada. ', h('a', { href: '#/inicio' }, 'Voltar ao início'))); return; }
   const [re, render, migalhas] = alvo;
   const params = caminho.match(re).slice(1);
   definirMigalhas(migalhas);
   conteudo.replaceChildren(carregando());
   try {
     const el = await render(contexto(params, query));
+    if (minha !== navegacao || !usuario) return;
     if (el) conteudo.replaceChildren(el);
   } catch (e) {
+    if (minha !== navegacao || !usuario) return;
     conteudo.replaceChildren(falha(e, rotear));
   }
   conteudo.focus({ preventScroll: true });
   window.scrollTo(0, 0);
 }
 
+// Menu lateral: lista única dos módulos liberados; Configurações e Ajuda ficam no rodapé.
 function montarMenu() {
-  const itens = [];
-  let grupoPendente = null;
-  for (const m of MENU) {
-    if (m.grupo) { grupoPendente = m.grupo; continue; }
-    if (!usuario.permissoes.includes(m.perm)) continue;
-    if (grupoPendente) { itens.push(h('div', { class: 'grupo' }, grupoPendente)); grupoPendente = null; }
-    itens.push(h('a', { href: '#/' + m.rota, dataset: { rota: m.rota }, title: m.rotulo }, icone(m.ic), h('span', { class: 'rotulo' }, m.rotulo)));
-  }
-  $('menu').replaceChildren(...itens);
+  const item = (m) => h('a', { href: '#/' + m.rota, dataset: { rota: m.rota }, title: m.rotulo }, icone(m.ic, 24), h('span', { class: 'rotulo' }, m.rotulo));
+  const liberados = MENU.filter((m) => liberado(usuario, m));
+  $('menu').replaceChildren(...liberados.filter((m) => !m.rodape).map(item));
+  $('menu-rodape').replaceChildren(...liberados.filter((m) => m.rodape).map(item));
+}
+
+// Empresa/filial ativa no cabeçalho (dados do servidor). Sem outras empresas, não há seletor.
+async function mostrarEmpresa() {
+  const el = $('empresa-ativa');
+  try {
+    const e = await get('/api/empresa');
+    if (!usuario) return;
+    el.textContent = `Empresa ${e.codigo} · ${e.nome}`;
+    $('contexto').title = `Filial ${e.filial_codigo} · ${e.filial_nome}`;
+  } catch { el.textContent = ''; }
 }
 
 async function atualizarNotificacoes() {
@@ -127,7 +146,72 @@ async function atualizarNotificacoes() {
         h('a', { href: a.rota, onclick: () => fecharNotif() }, a.texto)))) : h('p', { class: 'muted' }, 'Nenhum alerta no momento.'));
   } catch { /* notificações são acessórias; falha silenciosa não bloqueia a tela */ }
 }
-function fecharNotif() { $('painel-notif').hidden = true; $('btn-notif').setAttribute('aria-expanded', 'false'); }
+// ---------- Painéis do cabeçalho: só um aberto por vez ----------
+// Uma única fonte de verdade: painelAtivo = null | 'idioma' | 'notificacoes' | 'usuario' | 'busca'.
+// Cada painel registra o controle que o abre (botao), o painel e a área "de dentro" (raiz): clicar ou focar
+// fora da raiz do painel ativo o fecha. Os botões NÃO param a propagação do clique: o botão troca o painel
+// primeiro e, quando o clique chega ao document, o painel ativo já é o novo (e o clique foi "dentro" dele).
+// Modais e formulários da página ficam fora deste controle.
+const PAINEIS = {};
+let painelAtivo = null;
+
+function registrarPainel(nome, cfg) { PAINEIS[nome] = cfg; }
+
+function abrirPainel(nome) {
+  if (painelAtivo === nome) return;
+  fecharPainel();
+  const p = PAINEIS[nome];
+  painelAtivo = nome;
+  p.painel.hidden = false;
+  p.botao.setAttribute('aria-expanded', 'true');
+  manterNaTela(p.painel);
+  p.aoAbrir?.();
+}
+
+// Painel aberto nunca sai da área visível (telas estreitas): desloca na horizontal só o necessário.
+function manterNaTela(painel) {
+  painel.style.translate = '';
+  const r = painel.getBoundingClientRect();
+  const margem = 8;
+  let dx = 0;
+  if (r.left < margem) dx = margem - r.left;
+  else if (r.right > window.innerWidth - margem) dx = window.innerWidth - margem - r.right;
+  if (dx) painel.style.translate = `${Math.round(dx)}px 0`;
+}
+
+function fecharPainel({ devolverFoco = false } = {}) {
+  if (!painelAtivo) return;
+  const p = PAINEIS[painelAtivo];
+  painelAtivo = null;
+  p.painel.hidden = true;
+  p.botao.setAttribute('aria-expanded', 'false');
+  p.aoFechar?.();
+  if (devolverFoco) p.botao.focus();
+}
+
+const alternarPainel = (nome) => (painelAtivo === nome ? fecharPainel() : abrirPainel(nome));
+
+// Listeners globais únicos (o cabeçalho vive enquanto a página existir; nada a desmontar).
+function iniciarPaineisCabecalho() {
+  const dentro = (alvo) => painelAtivo && PAINEIS[painelAtivo].raiz.contains(alvo);
+  document.addEventListener('click', (ev) => { if (painelAtivo && !dentro(ev.target)) fecharPainel(); });
+  // Teclado: sair do painel com Tab também o fecha.
+  document.addEventListener('focusin', (ev) => { if (painelAtivo && !dentro(ev.target)) fecharPainel(); });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape' || !painelAtivo) return;
+    ev.preventDefault();
+    fecharPainel({ devolverFoco: true });
+  });
+  window.addEventListener('hashchange', () => fecharPainel());
+  window.addEventListener('resize', () => { if (painelAtivo) manterNaTela(PAINEIS[painelAtivo].painel); });
+}
+
+function iniciarNotificacoes() {
+  const botao = $('btn-notif');
+  registrarPainel('notificacoes', { botao, painel: $('painel-notif'), raiz: botao.closest('.notif'), aoAbrir: () => atualizarNotificacoes() });
+  botao.addEventListener('click', () => alternarPainel('notificacoes'));
+}
+const fecharNotif = () => { if (painelAtivo === 'notificacoes') fecharPainel(); };
 
 // Ilustração decorativa do login: montada só enquanto a tela de login está visível.
 let desmontarIlustracao = null;
@@ -139,15 +223,30 @@ function entrar(u) {
   $('tela-login').hidden = true;
   $('app').hidden = false;
   $('usuario-nome').textContent = u.nome;
-  $('usuario-perfil').textContent = ({ ADMIN: 'Administrador', GERENTE: 'Gerente', VENDEDOR: 'Vendedor', ESTOQUE: 'Estoque', FINANCEIRO: 'Financeiro', CONSULTA: 'Consulta' })[u.perfil] || u.perfil;
+  $('usuario-perfil').textContent = ({ ADMIN: 'Administrador', DIRETORIA: 'Diretoria', GERENTE: 'Gerente', VENDEDOR: 'Vendedor', ESTOQUE: 'Estoque', FINANCEIRO: 'Financeiro', CONSULTA: 'Consulta', SEM_ACESSO: 'Sem acesso' })[u.perfil] || u.perfil;
   $('avatar').textContent = u.nome.split(' ').map((p) => p[0]).slice(0, 2).join('');
   montarMenu();
+  mostrarEmpresa();
   atualizarNotificacoes();
+  rotaAtual = '';
   rotear();
+}
+
+// Ao sair (ou ao expirar a sessão), nada do usuário anterior fica na página, nem escondido:
+// conteúdo, menu, notificações, janelas, busca e identificação são esvaziados.
+function limparSessaoNaTela() {
+  navegacao++;
+  saidaDaPagina?.desmontar?.(); saidaDaPagina = null; rotaAtual = '';
+  for (const id of ['conteudo', 'menu', 'menu-rodape', 'migalhas', 'painel-notif', 'modal-raiz', 'busca-resultados', 'usuario-nome', 'usuario-perfil', 'avatar', 'empresa-ativa']) $(id).replaceChildren();
+  $('notif-contador').hidden = true;
+  fecharPainel(); // painel do cabeçalho aberto (se houver) fecha e o estado volta a "nenhum"
+  $('busca-global').value = '';
+  document.querySelector('.dica-grafico')?.remove();
 }
 
 function mostrarLogin(msg) {
   usuario = null;
+  limparSessaoNaTela();
   $('app').hidden = true;
   $('tela-login').hidden = false;
   pararIlustracao();
@@ -210,8 +309,31 @@ function errosRegistro(f) {
   if (s.length < 8) e.senha = 'A senha deve ter pelo menos 8 caracteres.';
   else if (!/[A-Za-z]/.test(s) || !/\d/.test(s)) e.senha = 'A senha deve conter letras e números.';
   else if (login && s.toLowerCase().includes(login.toLowerCase())) e.senha = 'A senha não pode conter o login.';
-  if (f.confirmacao.value !== s) e.confirmacao = 'As senhas não conferem.';
+  if (!f.confirmacao.value) e.confirmacao = CONFIRMACAO_VAZIA;
+  else if (f.confirmacao.value !== s) e.confirmacao = SENHAS_DIFERENTES;
   return e;
+}
+
+// "As senhas não conferem" acompanha os valores ATUAIS dos dois campos, comparados exatamente como
+// digitados (sem trim nem mudança de maiúsculas). Roda quando qualquer um dos dois muda (digitar, apagar,
+// colar). Só cuida da confirmação: os erros das regras da senha principal não são tocados aqui.
+const SENHAS_DIFERENTES = 'As senhas não conferem.';
+const CONFIRMACAO_VAZIA = 'Confirme a senha.';
+// O tipo do erro exibido fica em data-erro do campo (o texto pode estar traduzido na tela).
+function revalidarConfirmacao(f) {
+  const msg = $('r-confirmacao');
+  const campo = f.confirmacao;
+  if (campo.value && campo.value !== f.senha.value) {
+    msg.textContent = SENHAS_DIFERENTES;
+    campo.dataset.erro = 'divergencia';
+    campo.setAttribute('aria-invalid', 'true');
+  } else if (campo.value || campo.dataset.erro === 'divergencia') {
+    // Iguais, ou confirmação apagada depois de uma divergência: some a mensagem e a borda vermelha.
+    // Com o campo vazio, o aviso de preenchimento obrigatório (do envio) continua até a pessoa digitar.
+    msg.textContent = '';
+    delete campo.dataset.erro;
+    campo.removeAttribute('aria-invalid');
+  }
 }
 
 // Aviso do campo usuário (o espaço é aceito na digitação, mas avisado e recusado no envio).
@@ -232,6 +354,9 @@ function mostrarErrosRegistro(f, erros) {
     f[campo].toggleAttribute('aria-invalid', !!msg);
     if (msg) f[campo].setAttribute('aria-invalid', 'true');
   }
+  if (erros.confirmacao === SENHAS_DIFERENTES) f.confirmacao.dataset.erro = 'divergencia';
+  else if (erros.confirmacao) f.confirmacao.dataset.erro = 'vazia';
+  else delete f.confirmacao.dataset.erro;
   const primeiro = ['nome', 'login', 'senha', 'confirmacao'].find((c) => erros[c]);
   if (primeiro) f[primeiro].focus();
   return !!primeiro;
@@ -249,6 +374,49 @@ function iniciarTema() {
   marcar();
 }
 
+// Escolha de idioma (tela de login e menu do usuário). A troca recarrega a página no novo idioma.
+// Cabeçalho: globo + idioma atual (PT-BR / EN-US) abre a lista de idiomas; na tela de login, atalho PT | EN.
+function iniciarIdioma() {
+  const botao = $('btn-idioma'); const menu = $('menu-idioma');
+  const opcoes = [...menu.querySelectorAll('[data-idioma]')];
+  $('idioma-atual').textContent = idioma.toUpperCase();
+  botao.setAttribute('aria-label', `${idioma === 'en-US' ? 'Language' : 'Idioma'}: ${IDIOMAS[idioma]}`);
+  for (const o of opcoes) o.setAttribute('aria-checked', String(o.dataset.idioma === idioma));
+  for (const b of document.querySelectorAll('.login-idioma [data-idioma]')) {
+    b.setAttribute('aria-pressed', String(b.dataset.idioma === idioma));
+    b.addEventListener('click', () => definirIdioma(b.dataset.idioma));
+  }
+  // Abrir e fechar passam pelo controle único do cabeçalho (fecha notificações, usuário e busca).
+  registrarPainel('idioma', { botao, painel: menu, raiz: botao.closest('.idioma-seletor'),
+    aoAbrir: () => (opcoes.find((o) => o.getAttribute('aria-checked') === 'true') || opcoes[0]).focus() });
+  botao.addEventListener('click', () => alternarPainel('idioma'));
+  botao.addEventListener('keydown', (ev) => { if (ev.key === 'ArrowDown' && menu.hidden) { ev.preventDefault(); abrirPainel('idioma'); } });
+  menu.addEventListener('keydown', (ev) => {
+    const i = opcoes.indexOf(document.activeElement);
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      opcoes[(i + (ev.key === 'ArrowDown' ? 1 : -1) + opcoes.length) % opcoes.length].focus();
+    }
+  });
+  // A troca recarrega a página no novo idioma; com anotação não salva, o navegador pede confirmação.
+  for (const o of opcoes) o.addEventListener('click', () => { fecharPainel({ devolverFoco: true }); definirIdioma(o.dataset.idioma); });
+}
+
+// Botão de tema: sol no modo escuro (ativa o claro), lua no modo claro (ativa o escuro). Um clique grava a
+// escolha explícita, mesmo em "Seguir sistema". O ícone é escolhido pelo CSS conforme <html data-theme>.
+function iniciarBotaoTema() {
+  const botao = $('btn-tema');
+  const escuro = () => document.documentElement.dataset.theme !== 'light';
+  const marcar = () => {
+    const acao = escuro() ? 'Ativar modo claro' : 'Ativar modo escuro';
+    botao.setAttribute('aria-label', acao);
+    botao.dataset.dica = acao;
+  };
+  botao.addEventListener('click', () => window.ERPTema?.definir(escuro() ? 'light' : 'dark'));
+  document.addEventListener('tema-mudou', marcar);
+  marcar();
+}
+
 // ---------- Busca geral do cabeçalho ----------
 // Leva às páginas do menu (respeitando permissões) e busca o termo nas telas que já têm pesquisa.
 const normalizarBusca = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -257,7 +425,9 @@ function resultadosBusca(termo) {
   if (!usuario || !t) return [];
   const r = [];
   for (const m of MENU) {
-    if (m.rota && usuario.permissoes.includes(m.perm) && normalizarBusca(m.rotulo).includes(t)) r.push({ rotulo: m.rotulo, dica: 'Abrir página', destino: '#/' + m.rota });
+    // Aceita o nome da página no idioma da tela ou em português.
+    const nomes = [m.rotulo, traduzir(m.rotulo)].map(normalizarBusca);
+    if (m.rota && liberado(usuario, m) && nomes.some((n) => n.includes(t))) r.push({ rotulo: m.rotulo, dica: 'Abrir página', destino: '#/' + m.rota });
   }
   if (t.length >= 2) {
     const bruto = termo.trim().slice(0, 60);
@@ -271,13 +441,16 @@ function resultadosBusca(termo) {
 function iniciarBusca() {
   const campo = $('busca-global'); const lista = $('busca-resultados');
   let itens = []; let ativo = -1;
-  const fechar = () => { lista.hidden = true; campo.setAttribute('aria-expanded', 'false'); campo.removeAttribute('aria-activedescendant'); ativo = -1; };
+  // A lista de resultados é um painel do cabeçalho como os outros: abrir fecha os demais e vice-versa.
+  registrarPainel('busca', { botao: campo, painel: lista, raiz: campo.closest('.busca-global'),
+    aoFechar: () => { campo.removeAttribute('aria-activedescendant'); ativo = -1; } });
+  const fechar = () => { if (painelAtivo === 'busca') fecharPainel(); };
   const ir = (it) => { campo.value = ''; itens = []; fechar(); location.hash = it.destino; };
   const desenhar = () => {
     lista.replaceChildren(...itens.map((it, i) => h('li', { role: 'option', id: 'busca-op-' + i, 'aria-selected': String(i === ativo),
       onmousedown: (ev) => { ev.preventDefault(); ir(it); } }, h('span', {}, it.rotulo), h('small', {}, it.dica))));
-    lista.hidden = !itens.length;
-    campo.setAttribute('aria-expanded', String(!!itens.length));
+    if (!itens.length) { fechar(); return; }
+    abrirPainel('busca');
     if (ativo >= 0) campo.setAttribute('aria-activedescendant', 'busca-op-' + ativo); else campo.removeAttribute('aria-activedescendant');
   };
   campo.addEventListener('input', () => { itens = resultadosBusca(campo.value); ativo = itens.length ? 0 : -1; desenhar(); });
@@ -285,22 +458,23 @@ function iniciarBusca() {
     if (ev.key === 'ArrowDown' && itens.length) { ativo = (ativo + 1) % itens.length; desenhar(); ev.preventDefault(); }
     else if (ev.key === 'ArrowUp' && itens.length) { ativo = (ativo - 1 + itens.length) % itens.length; desenhar(); ev.preventDefault(); }
     else if (ev.key === 'Enter' && itens[ativo]) { ev.preventDefault(); ir(itens[ativo]); }
-    else if (ev.key === 'Escape') fechar();
+    // Escape é tratado pelo controle do cabeçalho (fecha a lista e mantém o foco no campo).
   });
-  campo.addEventListener('blur', () => setTimeout(fechar, 120));
 }
 
 // ---------- Menu do usuário (nome + perfil + sair) ----------
 function iniciarMenuUsuario() {
   const menu = $('menu-usuario'); const botao = $('btn-usuario');
-  const fechar = () => { menu.hidden = true; botao.setAttribute('aria-expanded', 'false'); };
-  botao.addEventListener('click', (ev) => { ev.stopPropagation(); menu.hidden = !menu.hidden; botao.setAttribute('aria-expanded', String(!menu.hidden)); if (!menu.hidden) $('btn-sair').focus(); });
-  document.addEventListener('click', (ev) => { if (!menu.hidden && !ev.target.closest('.usuario')) fechar(); });
-  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !menu.hidden) { fechar(); botao.focus(); } });
+  // Os botões de tema ficam dentro da raiz: trocar o tema mantém o menu aberto.
+  registrarPainel('usuario', { botao, painel: menu, raiz: botao.closest('.usuario'),
+    aoAbrir: () => (menu.querySelector('.tema-opcoes [aria-pressed="true"]') || $('btn-sair')).focus() });
+  botao.addEventListener('click', () => alternarPainel('usuario'));
 }
 
 async function iniciar() {
   iniciarTema();
+  iniciarBotaoTema();
+  iniciarIdioma();
   quandoSessaoExpirar(() => { if (usuario) { toast('Sua sessão expirou. Entre novamente.', 'alerta'); mostrarLogin(); } });
   let recolhido = false;
   try { recolhido = localStorage.getItem('menuRecolhido') === '1'; } catch { /* ignora */ }
@@ -313,16 +487,12 @@ async function iniciar() {
     $('btn-menu').setAttribute('aria-expanded', String(!r));
     try { localStorage.setItem('menuRecolhido', r ? '1' : '0'); } catch { /* ignora */ }
   });
-  $('btn-notif').addEventListener('click', (ev) => {
-    ev.stopPropagation();
-    const p = $('painel-notif');
-    p.hidden = !p.hidden;
-    $('btn-notif').setAttribute('aria-expanded', String(!p.hidden));
-    if (!p.hidden) atualizarNotificacoes();
+  iniciarPaineisCabecalho();
+  iniciarNotificacoes();
+  $('btn-sair').addEventListener('click', async () => {
+    if (!(await podeSairDaPagina())) return; // anotação não salva: a pessoa decide antes de sair
+    try { await post('/api/auth/logout'); } catch { /* ignora */ } definirCsrf(''); mostrarLogin();
   });
-  document.addEventListener('click', (ev) => { if (!$('painel-notif').hidden && !ev.target.closest('.notif')) fecharNotif(); });
-  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') fecharNotif(); });
-  $('btn-sair').addEventListener('click', async () => { try { await post('/api/auth/logout'); } catch { /* ignora */ } definirCsrf(''); mostrarLogin(); });
   $('form-login').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const f = ev.target;
@@ -336,16 +506,15 @@ async function iniciar() {
       ocultarSenhas();
       definirCsrf(r.csrf);
       f.senha.value = '';
-      if (location.hash === '' || location.hash === '#/') location.hash = '#/dashboard';
+      if (location.hash === '' || location.hash === '#/') location.hash = '#/inicio';
       entrar(r.usuario);
     } catch (e) { $('erro-login').textContent = e.message; } finally { btn.disabled = false; btn.classList.remove('enviando'); btn.removeAttribute('aria-busy'); }
   });
   $('ir-registro').addEventListener('click', () => { $('erro-login').textContent = ''; alternarFormAcesso('registro'); });
   $('ir-login').addEventListener('click', () => alternarFormAcesso('login'));
   const fr = $('form-registro');
-  fr.confirmacao.addEventListener('input', () => {
-    $('r-confirmacao').textContent = fr.confirmacao.value && fr.confirmacao.value !== fr.senha.value ? 'As senhas não conferem.' : '';
-  });
+  fr.confirmacao.addEventListener('input', () => revalidarConfirmacao(fr));
+  fr.senha.addEventListener('input', () => revalidarConfirmacao(fr));
   fr.login.addEventListener('input', () => {
     // Não altera o que foi digitado: só avisa enquanto houver problema.
     const aviso = fr.login.value ? problemaLogin(fr.login.value) : null;
@@ -367,9 +536,9 @@ async function iniciar() {
       definirCsrf(r.csrf);
       fr.reset();
       ocultarSenhas();
-      location.hash = '#/dashboard';
+      location.hash = '#/inicio';
       entrar(r.usuario);
-      toast(`Conta "${r.usuario.login}" criada. Seu perfil é CONSULTA (somente leitura).`, 'ok', 'Bem-vindo!');
+      toast(`Conta "${r.usuario.login}" criada. Um administrador vai liberar os módulos do seu acesso.`, 'ok', 'Bem-vindo!');
     } catch (e) {
       if (e.detalhes) mostrarErrosRegistro(fr, e.detalhes);
       $('erro-registro').textContent = e.message;

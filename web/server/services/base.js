@@ -6,6 +6,8 @@ const { erro } = require('../erros');
 // ctx = { db, usuario: { id, login, perfil }, agora: () => Date }
 const hoje = (ctx) => ctx.agora().toLocaleDateString('sv-SE'); // AAAA-MM-DD no fuso local
 const agoraIso = (ctx) => ctx.agora().toISOString();
+// Permissão efetiva do usuário da sessão (padrão do perfil + adicionais), para regras de campo e de escopo.
+const pode = (ctx, permissao) => (ctx.usuario.permissoes || []).includes(permissao);
 
 function auditar(ctx, entidade, entidadeId, acao, detalhes) {
   ctx.db.prepare(`INSERT INTO auditoria (entidade, entidade_id, acao, usuario, data_hora, detalhes)
@@ -86,6 +88,6 @@ function exigirVersao(versaoInformada, versaoAtual) {
 }
 
 module.exports = {
-  hoje, agoraIso, auditar, diferencas, PARAMETROS_PADRAO, parametro, listarParametros,
+  hoje, agoraIso, pode, auditar, diferencas, PARAMETROS_PADRAO, parametro, listarParametros,
   alterarParametro, paginar, ordenacao, like, exigirVersao,
 };

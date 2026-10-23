@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   id          INTEGER PRIMARY KEY,
   login       TEXT NOT NULL UNIQUE,
   nome        TEXT NOT NULL,
-  perfil      TEXT NOT NULL CHECK (perfil IN ('ADMIN','GERENTE','VENDEDOR','ESTOQUE','FINANCEIRO','CONSULTA')),
+  perfil      TEXT NOT NULL CHECK (perfil IN ('ADMIN','DIRETORIA','GERENTE','VENDEDOR','ESTOQUE','FINANCEIRO','CONSULTA','SEM_ACESSO')),
   senha_hash  TEXT NOT NULL,
   ativo       INTEGER NOT NULL DEFAULT 1
 );
@@ -244,6 +244,102 @@ function migrar(db) {
   const colunas = db.prepare('PRAGMA table_info(usuarios)').all().map((c) => c.name);
   if (!colunas.includes('perfil_base')) {
     db.exec("ALTER TABLE usuarios ADD COLUMN perfil_base TEXT CHECK (perfil_base IS NULL OR perfil_base <> 'ADMIN')");
+  }
+  // Perfis DIRETORIA e SEM_ACESSO: o SQLite não altera um CHECK existente, então a tabela é recriada
+  // com os mesmos dados (procedimento oficial: chaves estrangeiras desligadas durante a troca).
+  const ddlUsuarios = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'usuarios'").get().sql;
+  if (!ddlUsuarios.includes("'SEM_ACESSO'")) {
+    db.exec('PRAGMA foreign_keys = OFF;');
+    try {
+      db.exec(`BEGIN;
+        CREATE TABLE usuarios_nova (
+          id          INTEGER PRIMARY KEY,
+          login       TEXT NOT NULL UNIQUE,
+          nome        TEXT NOT NULL,
+          perfil      TEXT NOT NULL CHECK (perfil IN ('ADMIN','DIRETORIA','GERENTE','VENDEDOR','ESTOQUE','FINANCEIRO','CONSULTA','SEM_ACESSO')),
+          senha_hash  TEXT NOT NULL,
+          ativo       INTEGER NOT NULL DEFAULT 1,
+          perfil_base TEXT CHECK (perfil_base IS NULL OR perfil_base <> 'ADMIN')
+        );
+        INSERT INTO usuarios_nova (id, login, nome, perfil, senha_hash, ativo, perfil_base)
+          SELECT id, login, nome, perfil, senha_hash, ativo, perfil_base FROM usuarios;
+        DROP TABLE usuarios;
+        ALTER TABLE usuarios_nova RENAME TO usuarios;
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_usuarios_login_nocase ON usuarios (login COLLATE NOCASE);
+        COMMIT;`);
+    } catch (e) { db.exec('ROLLBACK;'); throw e; } finally { db.exec('PRAGMA foreign_keys = ON;'); }
+    const quebradas = db.prepare('PRAGMA foreign_key_check').all();
+    if (quebradas.length) throw new Error('Migração de perfis deixou referências inválidas: ' + JSON.stringify(quebradas.slice(0, 3)));
+  }
+  // Mesa de trabalho (página Início): tarefas, anotação e preferências PESSOAIS. Cada linha pertence a um
+  // usuário; o servidor sempre filtra por usuario_id da sessão. Apagar a conta apaga esses dados pessoais.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tarefas (
+      id           INTEGER PRIMARY KEY,
+      usuario_id   INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+      titulo       TEXT NOT NULL,
+      descricao    TEXT NOT NULL DEFAULT '',
+      prazo        TEXT,
+      prioridade   TEXT NOT NULL DEFAULT 'NORMAL' CHECK (prioridade IN ('ALTA','MEDIA','NORMAL')),
+      concluida    INTEGER NOT NULL DEFAULT 0,
+      concluida_em TEXT,
+      criado_em    TEXT NOT NULL,
+      atualizado_em TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_tarefas_usuario ON tarefas (usuario_id, concluida, prazo);
+    CREATE TABLE IF NOT EXISTS notas_pessoais (
+      usuario_id    INTEGER PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+      texto         TEXT NOT NULL DEFAULT '',
+      atualizado_em TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS preferencias_mesa (
+      usuario_id         INTEGER PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+      atalhos            TEXT NOT NULL,
+      mostrar_calendario INTEGER NOT NULL DEFAULT 1,
+      mostrar_notas      INTEGER NOT NULL DEFAULT 1,
+      atualizado_em      TEXT NOT NULL
+    );
+    -- Várias notas por usuário (bloquinhos). notas_pessoais (nota única) ficou só como origem da migração.
+    CREATE TABLE IF NOT EXISTS notas (
+      id            INTEGER PRIMARY KEY,
+      usuario_id    INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+      texto         TEXT NOT NULL,
+      criado_em     TEXT NOT NULL,
+      atualizado_em TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_notas_usuario ON notas (usuario_id, atualizado_em);
+    CREATE TABLE IF NOT EXISTS migracoes (nome TEXT PRIMARY KEY, feita_em TEXT NOT NULL);
+    -- Acessos adicionais por usuário, concedidos pelo ADMIN além do padrão do perfil (ver ADICIONAIS em auth.js).
+    CREATE TABLE IF NOT EXISTS usuario_permissoes (
+      usuario_id    INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+      permissao     TEXT NOT NULL,
+      concedido_por TEXT NOT NULL,
+      concedido_em  TEXT NOT NULL,
+      PRIMARY KEY (usuario_id, permissao)
+    );
+    -- Empresa/filial ativa exibida no cabeçalho (a demonstração tem uma só; antes ficava fixa no HTML).
+    CREATE TABLE IF NOT EXISTS empresa (
+      id            INTEGER PRIMARY KEY CHECK (id = 1),
+      codigo        TEXT NOT NULL,
+      nome          TEXT NOT NULL,
+      filial_codigo TEXT NOT NULL,
+      filial_nome   TEXT NOT NULL
+    );
+    INSERT OR IGNORE INTO empresa (id, codigo, nome, filial_codigo, filial_nome) VALUES (1, '01', 'Indústria Demo Ltda.', '0101', 'Matriz');
+  `);
+  // Carteira do vendedor: cliente com vendedor responsável (login). Clientes antigos ficam SEM vendedor:
+  // nenhum é atribuído automaticamente; o gerente/admin define a carteira no cadastro do cliente.
+  if (!db.prepare('PRAGMA table_info(clientes)').all().some((c) => c.name === 'vendedor')) {
+    db.exec('ALTER TABLE clientes ADD COLUMN vendedor TEXT');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS ix_clientes_vendedor ON clientes (vendedor)');
+  // Uma única vez: a nota única de cada usuário vira o primeiro bloquinho (nada é apagado da tabela antiga).
+  if (!db.prepare("SELECT 1 FROM migracoes WHERE nome = 'notas_em_blocos'").get()) {
+    db.exec(`BEGIN;
+      INSERT INTO notas (usuario_id, texto, criado_em, atualizado_em)
+        SELECT usuario_id, trim(texto, ' '||char(9)||char(10)||char(13)), atualizado_em, atualizado_em FROM notas_pessoais WHERE trim(texto, ' '||char(9)||char(10)||char(13)) <> '';
+      INSERT INTO migracoes (nome, feita_em) VALUES ('notas_em_blocos', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+      COMMIT;`);
   }
   // Logins de contas excluídas que tinham histórico: não podem ser recriados, para que ninguém
   // "herde" pedidos, movimentos ou auditoria de outra pessoa pelo mesmo login.

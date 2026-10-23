@@ -173,9 +173,11 @@ describe('4-7. Pedidos de venda', () => {
     const ped = await novoPedido(vendedor, c.id, [{ produto_id: p.id, quantidade: 4 }]);
     const env = await vendedor.post(`/api/pedidos/${ped.id}/enviar`, { versao: ped.versao });
     assert.equal((await admin.get(`/api/produtos/${p.id}`)).corpo.reservado, 4);
-    const semMotivo = await vendedor.post(`/api/pedidos/${ped.id}/cancelar`, { versao: env.corpo.versao, motivo: '' });
+    // pedido já aprovado: o vendedor não cancela mais; quem aprova (gerente) cancela
+    assert.equal((await vendedor.post(`/api/pedidos/${ped.id}/cancelar`, { versao: env.corpo.versao, motivo: 'Cliente desistiu' })).status, 403);
+    const semMotivo = await gerente.post(`/api/pedidos/${ped.id}/cancelar`, { versao: env.corpo.versao, motivo: '' });
     assert.equal(semMotivo.status, 422);
-    const can = await vendedor.post(`/api/pedidos/${ped.id}/cancelar`, { versao: env.corpo.versao, motivo: 'Cliente desistiu' });
+    const can = await gerente.post(`/api/pedidos/${ped.id}/cancelar`, { versao: env.corpo.versao, motivo: 'Cliente desistiu' });
     assert.equal(can.corpo.status, 'CANCELADO');
     assert.equal((await admin.get(`/api/produtos/${p.id}`)).corpo.reservado, 0);
     const fat = await gerente.post(`/api/pedidos/${ped.id}/faturar`, { versao: can.corpo.versao });
@@ -290,7 +292,7 @@ describe('10. Permissões e acesso a registros', () => {
 
   test('vendedor não enxerga pedido de outro vendedor', async () => {
     const outro = await amb.sessao('vendedor2');
-    const c = await novoCliente();
+    const c = await novoCliente({ vendedor: 'vendedor2' });
     const p = await novoProduto();
     const ped = await novoPedido(outro, c.id, [{ produto_id: p.id, quantidade: 1 }]);
     assert.equal((await vendedor.get(`/api/pedidos/${ped.id}`)).status, 404);
@@ -332,7 +334,7 @@ describe('Autocadastro de usuário', () => {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
   });
 
-  test('cria conta CONSULTA, já autenticada, e ignora perfil enviado pelo cliente', async () => {
+  test('cria conta SEM_ACESSO (sem módulos), já autenticada, e ignora perfil enviado pelo cliente', async () => {
     const r = await registrar({ nome: 'Maria Teste', login: 'Maria.Teste', senha: 'segredo123', confirmacao: 'segredo123', perfil: 'ADMIN' });
     assert.equal(r.status, 201);
     const corpo = await r.json();
@@ -343,7 +345,8 @@ describe('Autocadastro de usuário', () => {
       assert.equal(r2.status, 200, variante);
       assert.equal((await r2.json()).usuario.id, corpo.usuario.id, variante);
     }
-    assert.equal(corpo.usuario.perfil, 'CONSULTA', 'perfil enviado pelo cliente é ignorado');
+    assert.equal(corpo.usuario.perfil, 'SEM_ACESSO', 'perfil enviado pelo cliente é ignorado');
+    assert.deepEqual(corpo.usuario.permissoes, [], 'conta nova não tem nenhum módulo liberado');
     const cookie = r.headers.get('set-cookie').split(';')[0];
     const sessao = await fetch(amb.url + '/api/auth/sessao', { headers: { Cookie: cookie } });
     assert.equal(sessao.status, 200);
@@ -375,7 +378,7 @@ describe('Autocadastro de usuário', () => {
     await registrar({ nome: 'Pedro Teste', login: 'pedro', senha: 'segredo456' });
     const lista = (await admin.get('/api/usuarios')).corpo;
     const pedro = lista.find((u) => u.login === 'pedro');
-    assert.equal(pedro.perfil, 'CONSULTA');
+    assert.equal(pedro.perfil, 'SEM_ACESSO');
     assert.equal((await admin.put(`/api/usuarios/${pedro.id}`, { perfil: 'VENDEDOR' })).status, 200);
     assert.equal((await admin.put(`/api/usuarios/${pedro.id}`, { perfil: 'SUPERUSER' })).status, 422);
     const eu = lista.find((u) => u.login === 'admin');
@@ -445,25 +448,25 @@ describe('12. Falhas de persistência', () => {
 
 describe('Dashboard e relatórios', () => {
   test('indicadores refletem operações (sem números fixos)', async () => {
-    const antes = (await admin.get('/api/dashboard')).corpo.indicadores;
+    const antes = (await admin.get('/api/painel-executivo')).corpo.indicadores;
     const c = await novoCliente();
     const p = await novoProduto({ preco_venda: 10 });
     const ped = await novoPedido(vendedor, c.id, [{ produto_id: p.id, quantidade: 1 }]);
     const env = await vendedor.post(`/api/pedidos/${ped.id}/enviar`, { versao: ped.versao });
     await gerente.post(`/api/pedidos/${ped.id}/faturar`, { versao: env.corpo.versao });
-    const depois = (await admin.get('/api/dashboard')).corpo.indicadores;
+    const depois = (await admin.get('/api/painel-executivo')).corpo.indicadores;
     assert.equal(Math.round((depois.faturamento - antes.faturamento) * 100), 1000);
     assert.equal(Math.round((depois.receber_aberto - antes.receber_aberto) * 100), 1000);
   });
 
-  test('visão geral: itens vendidos, categorias e pedidos recentes conforme o perfil', async () => {
-    const antes = (await admin.get('/api/dashboard')).corpo;
+  test('painel executivo: itens vendidos, categorias e pedidos recentes', async () => {
+    const antes = (await admin.get('/api/painel-executivo')).corpo;
     const c = await novoCliente();
     const p = await novoProduto({ preco_venda: 5 });
     const ped = await novoPedido(vendedor, c.id, [{ produto_id: p.id, quantidade: 3 }]);
     const env = await vendedor.post(`/api/pedidos/${ped.id}/enviar`, { versao: ped.versao });
     await gerente.post(`/api/pedidos/${ped.id}/faturar`, { versao: env.corpo.versao });
-    const depois = (await admin.get('/api/dashboard')).corpo;
+    const depois = (await admin.get('/api/painel-executivo')).corpo;
     assert.equal(depois.indicadores.itens_vendidos - antes.indicadores.itens_vendidos, 3);
     const k = depois.indicadores;
     assert.equal(k.ticket_medio, Math.round((k.faturamento / k.pedidos_faturados) * 100) / 100);
@@ -471,10 +474,9 @@ describe('Dashboard e relatórios', () => {
     assert.equal(Math.round(somaGrupos * 100), Math.round(k.itens_vendidos * 100), 'categorias somam os itens vendidos');
     assert.ok(depois.por_grupo.length <= 5);
     assert.equal(depois.pedidos_recentes[0].numero, ped.numero);
-    // perfil sem acesso a pedidos não recebe a lista; vendedor recebe só os próprios
-    assert.equal((await estoque.get('/api/dashboard')).corpo.pedidos_recentes, null);
-    const doVendedor = (await vendedor.get('/api/dashboard')).corpo.pedidos_recentes;
-    for (const r of doVendedor) assert.equal((await admin.get(`/api/pedidos/${r.id}`)).corpo.vendedor, 'vendedor');
+    // perfis operacionais não recebem os resultados estratégicos (nem a lista de pedidos que vem junto)
+    assert.equal((await estoque.get('/api/painel-executivo')).status, 403);
+    assert.equal((await vendedor.get('/api/painel-executivo')).status, 403);
   });
 
   test('todos os relatórios executam e validam período', async () => {

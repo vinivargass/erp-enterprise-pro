@@ -15,14 +15,20 @@ async function iniciar(opcoes = {}) {
   const db = abrir(':memory:');
   hashCache ||= hashSenha(SENHA);
   const insU = db.prepare('INSERT INTO usuarios (login, nome, perfil, senha_hash) VALUES (?,?,?,?)');
-  for (const p of ['ADMIN', 'GERENTE', 'VENDEDOR', 'ESTOQUE', 'FINANCEIRO', 'CONSULTA']) insU.run(p.toLowerCase(), p, p, hashCache);
+  for (const p of ['ADMIN', 'DIRETORIA', 'GERENTE', 'VENDEDOR', 'ESTOQUE', 'FINANCEIRO', 'CONSULTA', 'SEM_ACESSO']) insU.run(p.toLowerCase(), p, p, hashCache);
   insU.run('vendedor2', 'Outro vendedor', 'VENDEDOR', hashCache);
+  // Os testes de fluxo usam o gerente para faturar: por padrão isso é acesso adicional, concedido aqui.
+  // (permissoes.test.js remove a concessão para testar os padrões de cada perfil.)
+  if (opcoes.semAdicionais !== true) {
+    db.prepare("INSERT INTO usuario_permissoes (usuario_id, permissao, concedido_por, concedido_em) SELECT id, 'pedidos.faturar', 'admin', '2026-01-01T00:00:00Z' FROM usuarios WHERE login = 'gerente'").run();
+  }
   const insP = db.prepare('INSERT INTO parametros (chave, valor, tipo, descricao) VALUES (?,?,?,?)');
   for (const p of base.PARAMETROS_PADRAO) insP.run(...p);
   db.prepare("INSERT INTO condicoes_pagamento VALUES ('001','À vista','0'), ('003','30/60','30,60')").run();
   db.prepare("INSERT INTO fornecedores (codigo, razao_social, documento) VALUES ('F1','Fornecedor Teste', ?)").run(dvCnpj('998877660001'));
 
-  const servidor = http.createServer(criarApp({ db, ...opcoes }));
+  const { semAdicionais, ...opcoesApp } = opcoes;
+  const servidor = http.createServer(criarApp({ db, ...opcoesApp }));
   await new Promise((r) => servidor.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${servidor.address().port}`;
 
@@ -54,7 +60,7 @@ function clienteValido(extra = {}) {
     razao_social: `Cliente Teste ${seq} Ltda`, nome_fantasia: `Teste ${seq}`, tipo_pessoa: 'J',
     documento: dvCnpj(String(10000000 + seq).padStart(8, '0') + '0001'),
     cep: '01001-000', logradouro: 'Rua A', numero: '10', bairro: 'Centro', municipio: 'São Paulo', uf: 'SP',
-    email: `c${seq}@exemplo.com.br`, cond_pagto: '001', limite_credito: 10000, ...extra,
+    email: `c${seq}@exemplo.com.br`, cond_pagto: '001', limite_credito: 10000, vendedor: 'vendedor', ...extra,
   };
 }
 function produtoValido(extra = {}) {
