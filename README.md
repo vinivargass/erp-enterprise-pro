@@ -1,6 +1,12 @@
 # ERP Enterprise Pro
 
-Projeto demonstrativo de ERP inspirado nos módulos do TOTVS Protheus, feito como **avaliação técnica**. Tem duas camadas, sempre identificadas:
+> 🚧 **Under active development.** The web app runs and its automated tests pass, but features are still being added and changed. Data in the demo is fictitious.
+
+A business management system (ERP) for small and mid-sized companies: sales orders, inventory, customers, finance and reports in one web app, with a live dashboard and role-based access.
+
+*Leia em português: [README.pt-BR.md](README.pt-BR.md)*
+
+![Dashboard](docs/guia/03-visao-geral.png)
 
 | Camada | Pasta | Natureza | Estado |
 |---|---|---|---|
